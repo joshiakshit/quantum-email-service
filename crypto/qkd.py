@@ -1,13 +1,15 @@
+from __future__ import annotations
+
 import os
 import hashlib
 import json
-from crypto.keys import encode_key, decode_key
 
-# Pre-shared key store simulates a QKD channel by distributing
-# identical symmetric keys to both parties during a bootstrap phase.
-# In a real deployment, these keys would come from quantum hardware.
+from crypto.keys import encode_key, decode_key
+from qkd_sim.bb84 import BB84Simulator
 
 QKD_KEY_SIZE = 32
+
+_simulator = BB84Simulator()
 
 
 class QKDSimulator:
@@ -22,9 +24,12 @@ class QKDSimulator:
         pair = tuple(sorted([party_a, party_b]))
         return hashlib.sha256(f"{pair[0]}:{pair[1]}".encode()).hexdigest()[:16]
 
-    def generate_shared_key(self, party_a: str, party_b: str) -> tuple[str, bytes]:
+    def generate_shared_key(self, party_a: str, party_b: str) -> tuple:
         session_id = self._session_id(party_a, party_b)
-        key = os.urandom(QKD_KEY_SIZE)
+        result = _simulator.simulate(key_length=QKD_KEY_SIZE * 8)
+        if not result.success or result.final_key is None:
+            raise RuntimeError(result.message)
+        key = result.final_key
         self._keys[session_id] = encode_key(key)
         if self.key_store_path:
             self._save_store()
