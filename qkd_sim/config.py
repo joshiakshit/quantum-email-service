@@ -1,0 +1,6 @@
+from __future__ import annotations
+
+QBER_THRESHOLD = 0.11
+DEFAULT_KEY_LENGTH = 256
+DEFAULT_KEY_TTL_SECONDS = 3600
+MIN_KEY_LENGTH = 8
