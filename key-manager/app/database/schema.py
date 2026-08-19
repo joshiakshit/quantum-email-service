@@ -10,7 +10,7 @@ IMPORTANT: Private ML-KEM / ML-DSA keys are NEVER stored here.
 """
 
 from datetime import datetime
-from sqlalchemy import String, Text, DateTime, Enum as SAEnum
+from sqlalchemy import String, Text, DateTime, Float, Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column
 from app.database.database import Base
 import enum
@@ -80,6 +80,10 @@ class SessionKey(Base):
 
     status: Mapped[KeyStatus] = mapped_column(
         SAEnum(KeyStatus), default=KeyStatus.ACTIVE, nullable=False
+    )
+
+    qber: Mapped[float] = mapped_column(
+        Float, nullable=True, default=None
     )
 
     def __repr__(self) -> str:

@@ -49,7 +49,7 @@ async def test_generate_key_structure(qkd: QKDService, qkd_db: AsyncSession):
     assert key.key_id.startswith("KEY-")
     assert key.sender_id == "QM-ALICE001"
     assert key.recipient_id == "QM-BOB00001"
-    assert key.algorithm == "SIMULATED-QKD"
+    assert key.algorithm == "BB84-QKD-SIM"
     assert key.status == KeyStatus.ACTIVE
 
 
