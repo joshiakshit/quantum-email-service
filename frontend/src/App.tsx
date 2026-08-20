@@ -8,8 +8,25 @@ import AuthScreen from '@/components/AuthScreen';
 import * as api from '@/api';
 import type { Email, AuthState } from './types';
 
+function useTheme() {
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
+    const stored = localStorage.getItem('qumail_theme');
+    return stored === 'light' ? 'light' : 'dark';
+  });
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('qumail_theme', theme);
+  }, [theme]);
+
+  const toggle = useCallback(() => setTheme(t => t === 'dark' ? 'light' : 'dark'), []);
+  return { theme, toggle };
+}
+
 export default function App() {
+  const { theme, toggle: toggleTheme } = useTheme();
   const [auth, setAuth] = useState<AuthState | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
   const [emails, setEmails] = useState<Email[]>([]);
   const [activeFolder, setActiveFolder] = useState('inbox');
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -24,7 +41,10 @@ export default function App() {
     if (token) {
       api.getAuthStatus()
         .then(data => setAuth({ token, ...data }))
-        .catch(() => localStorage.removeItem('qumail_token'));
+        .catch(() => localStorage.removeItem('qumail_token'))
+        .finally(() => setAuthChecked(true));
+    } else {
+      setAuthChecked(true);
     }
   }, []);
 
@@ -63,25 +83,31 @@ export default function App() {
     setSettingsOpen(false);
   }
 
+  if (!authChecked) {
+    return (
+      <div style={{
+        width: '100vw', height: '100vh', display: 'flex',
+        alignItems: 'center', justifyContent: 'center',
+        background: 'var(--bg)',
+      }} />
+    );
+  }
+
   if (!auth) return <AuthScreen onAuth={setAuth} />;
 
   return (
-    <div
-      style={{
-        width: '100vw',
-        height: '100vh',
-        display: 'flex',
-        background: 'var(--color-bg)',
-        color: 'var(--color-text)',
-        fontFamily: 'var(--font-body)',
-        overflow: 'hidden',
-      }}
-    >
+    <div style={{
+      width: '100vw', height: '100vh', display: 'flex',
+      background: 'var(--bg)', color: 'var(--fg)',
+      fontFamily: 'var(--font-sans)', overflow: 'hidden',
+    }}>
       <Sidebar
         activeFolder={activeFolder}
         settingsOpen={settingsOpen}
         emails={emails}
         auth={auth}
+        theme={theme}
+        onToggleTheme={toggleTheme}
         onSelectFolder={selectFolder}
         onOpenCompose={() => setComposeOpen(true)}
         onOpenKeyPanel={() => setKeyPanelOpen(true)}

@@ -37,17 +37,17 @@ export interface KeysInfo {
   km_status: string;
 }
 
-export function login(email: string, password: string) {
+export function login(username: string, password: string) {
   return request<AuthResponse>('/auth/login', {
     method: 'POST',
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ username, password }),
   });
 }
 
-export function register(email: string, password: string) {
+export function register(firstName: string, lastName: string, username: string, password: string) {
   return request<AuthResponse>('/auth/register', {
     method: 'POST',
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ first_name: firstName, last_name: lastName, username, password }),
   });
 }
 
