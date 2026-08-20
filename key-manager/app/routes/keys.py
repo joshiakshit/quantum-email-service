@@ -1,5 +1,7 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from app.database.database import get_db
 from app.database.schema import Client
@@ -8,6 +10,8 @@ from app.security.jwt import get_current_client
 from app.services.key_service import get_public_keys, request_session_key, retrieve_session_key
 
 router = APIRouter(prefix="/api/v1/keys", tags=["Keys"])
+
+limiter = Limiter(key_func=get_remote_address)
 
 
 @router.get(
@@ -40,7 +44,9 @@ async def get_public_key(
         "The requesting client must be either the sender or the recipient."
     ),
 )
+@limiter.limit("20/minute")
 async def request_key(
+    request: Request,
     body: SessionKeyRequest,
     db: AsyncSession = Depends(get_db),
     current: Client = Depends(get_current_client),

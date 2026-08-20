@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     client_id_length: int = 8
 
     cors_origins: str = "http://localhost:5173"
+    enforce_https: bool = False
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -28,6 +29,15 @@ class Settings(BaseSettings):
     )
 
 
+_JWT_DEFAULT = "CHANGE_ME_IN_PRODUCTION"
+
+
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    s = Settings()
+    if not s.debug and s.jwt_secret_key == _JWT_DEFAULT:
+        raise RuntimeError(
+            "JWT_SECRET_KEY still has the default value. "
+            "Set a strong random key via .env or environment variable."
+        )
+    return s

@@ -130,6 +130,7 @@ export default function App() {
           emails={emails}
           onSelectEmail={setSelectedId}
           onSearchChange={setSearch}
+          onRefresh={() => fetchEmails(activeFolder)}
         />
       )}
 

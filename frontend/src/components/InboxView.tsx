@@ -1,4 +1,4 @@
-import { Search, Lock, Unlock, Reply, Forward, Archive, Trash2, ShieldCheck, Inbox, Mail } from 'lucide-react';
+import { Search, Lock, Unlock, Reply, Forward, Archive, Trash2, ShieldCheck, Inbox, Mail, RefreshCw } from 'lucide-react';
 import { AVATARS, FOLDER_LABELS, getInitials } from '@/data';
 import type { Email } from '@/types';
 
@@ -9,9 +9,10 @@ interface Props {
   emails: Email[];
   onSelectEmail: (id: number) => void;
   onSearchChange: (q: string) => void;
+  onRefresh: () => void;
 }
 
-export default function InboxView({ activeFolder, selectedId, search, emails, onSelectEmail, onSearchChange }: Props) {
+export default function InboxView({ activeFolder, selectedId, search, emails, onSelectEmail, onSearchChange, onRefresh }: Props) {
   const inFolder = emails.filter(e => e.folder === activeFolder);
   const q = search.trim().toLowerCase();
   const filtered = q
@@ -48,6 +49,14 @@ export default function InboxView({ activeFolder, selectedId, search, emails, on
           />
         </div>
         <div style={{ flex: 1 }} />
+        <button
+          className="btn btn-icon"
+          title="Refresh"
+          onClick={onRefresh}
+          style={{ marginRight: 4 }}
+        >
+          <RefreshCw size={14} strokeWidth={1.7} />
+        </button>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--fg-muted)' }}>
           <Lock size={11} color="var(--green)" strokeWidth={2.4} />
           <span style={{ color: 'var(--green)', fontWeight: 500, fontSize: 11 }}>PQC</span>

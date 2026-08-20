@@ -6,11 +6,17 @@ import logging
 from datetime import datetime, timezone
 
 import requests as http_requests
-from fastapi import FastAPI, HTTPException, Header, Query
+from fastapi import FastAPI, HTTPException, Header, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
+from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -21,15 +27,38 @@ from crypto.email_helpers import envelope_to_mime, mime_to_envelope, extract_met
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s")
 logger = logging.getLogger(__name__)
 
+limiter = Limiter(key_func=get_remote_address)
+
 app = FastAPI(title="QMail Gateway", version="1.0.0")
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "http://localhost:5173")
+origins = [o.strip() for o in CORS_ORIGINS.split(",") if o.strip()]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_headers=["Authorization", "Content-Type"],
 )
+
+ENFORCE_HTTPS = os.environ.get("ENFORCE_HTTPS", "false").lower() == "true"
+if ENFORCE_HTTPS:
+    app.add_middleware(HTTPSRedirectMiddleware)
+
+
+class HSTSMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response: Response = await call_next(request)
+        if ENFORCE_HTTPS:
+            response.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains; preload"
+        return response
+
+
+app.add_middleware(HSTSMiddleware)
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request, exc):
@@ -169,7 +198,8 @@ def _create_session(auth_token: str):
 
 
 @app.post("/api/auth/login")
-async def auth_login(req: LoginReq):
+@limiter.limit("5/minute")
+async def auth_login(request: Request, req: LoginReq):
     email = _to_email(req.username)
     try:
         resp = http_requests.post(
@@ -191,7 +221,8 @@ async def auth_login(req: LoginReq):
 
 
 @app.post("/api/auth/register")
-async def auth_register(req: RegisterReq):
+@limiter.limit("3/minute")
+async def auth_register(request: Request, req: RegisterReq):
     email = _to_email(req.username)
     name = f"{req.first_name} {req.last_name}".strip()
     try:
@@ -375,6 +406,15 @@ async def keys_info(authorization: str = Header(None)):
         "km_url": KM_URL,
         "km_status": "connected",
     }
+
+
+@app.on_event("startup")
+async def _startup_warnings():
+    if os.environ.get("QMAIL_ENV", "development").lower() != "development":
+        logger.warning(
+            "Sessions and key material are stored in-memory. "
+            "Deploy Redis or an encrypted-at-rest store before production."
+        )
 
 
 @app.get("/health")
