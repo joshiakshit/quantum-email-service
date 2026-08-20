@@ -1,10 +1,12 @@
 import { Key, X, RefreshCw } from 'lucide-react';
+import type { AuthState } from '@/types';
 
 interface Props {
+  auth: AuthState;
   onClose: () => void;
 }
 
-export default function KeyManagementModal({ onClose }: Props) {
+export default function KeyManagementModal({ auth, onClose }: Props) {
   return (
     <div
       style={{
@@ -37,7 +39,7 @@ export default function KeyManagementModal({ onClose }: Props) {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 18 }}>
             <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#5fbf82', flex: 'none' }} />
             <span style={{ fontSize: 13, fontWeight: 500, color: '#5fbf82' }}>Registered with Key Manager</span>
-            <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--color-neutral-600)' }}>Last verified 3 min ago</span>
+            <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--color-neutral-600)' }}>Session active</span>
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -45,7 +47,7 @@ export default function KeyManagementModal({ onClose }: Props) {
             <div style={{ padding: 14, borderRadius: 'var(--radius-md)', background: 'var(--color-bg)', border: '1px solid var(--color-divider)' }}>
               <div style={{ fontSize: 10, color: 'var(--color-neutral-500)', marginBottom: 4 }}>Client ID</div>
               <div style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontSize: 14, color: 'var(--color-text)', letterSpacing: '0.03em' }}>
-                QM-CLI-7A2F-91BE-004D
+                {auth.client_id}
               </div>
             </div>
 
@@ -53,13 +55,17 @@ export default function KeyManagementModal({ onClose }: Props) {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div style={{ padding: 14, borderRadius: 'var(--radius-md)', background: 'var(--color-bg)', border: '1px solid color-mix(in srgb, var(--color-accent) 20%, transparent)' }}>
                 <div style={{ fontSize: 10, color: 'var(--color-neutral-500)', marginBottom: 4 }}>KEM key (ML-KEM-768)</div>
-                <div style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontSize: 12, color: 'var(--color-accent-300)', marginBottom: 6 }}>B4:7E:1A:9C:D0:33:F8:22</div>
-                <div style={{ fontSize: 9, color: 'var(--color-neutral-600)' }}>Generated 2026-08-14 · Expires 2027-02-14</div>
+                <div style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontSize: 12, color: 'var(--color-accent-300)', marginBottom: 6 }}>
+                  {auth.kem_fingerprint}
+                </div>
+                <div style={{ fontSize: 9, color: 'var(--color-neutral-600)' }}>NIST FIPS 203 · 192-bit security</div>
               </div>
               <div style={{ padding: 14, borderRadius: 'var(--radius-md)', background: 'var(--color-bg)', border: '1px solid color-mix(in srgb, var(--color-accent) 20%, transparent)' }}>
                 <div style={{ fontSize: 10, color: 'var(--color-neutral-500)', marginBottom: 4 }}>Signing key (ML-DSA-65)</div>
-                <div style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontSize: 12, color: 'var(--color-accent-300)', marginBottom: 6 }}>2D:A9:6C:11:E7:F0:5B:84</div>
-                <div style={{ fontSize: 9, color: 'var(--color-neutral-600)' }}>Generated 2026-08-14 · Expires 2027-02-14</div>
+                <div style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontSize: 12, color: 'var(--color-accent-300)', marginBottom: 6 }}>
+                  {auth.signing_fingerprint}
+                </div>
+                <div style={{ fontSize: 9, color: 'var(--color-neutral-600)' }}>NIST FIPS 204 · Category 3</div>
               </div>
             </div>
 
@@ -70,12 +76,12 @@ export default function KeyManagementModal({ onClose }: Props) {
                 <span className="tag tag-accent" style={{ fontSize: 9, padding: '2px 6px' }}>Active</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
-                <span style={{ color: 'var(--color-neutral-500)' }}>Expires</span>
-                <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', color: 'var(--color-neutral-300)' }}>2026-08-26 06:58 IST</span>
+                <span style={{ color: 'var(--color-neutral-500)' }}>Identity</span>
+                <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', color: 'var(--color-neutral-300)' }}>{auth.email}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginTop: 4 }}>
                 <span style={{ color: 'var(--color-neutral-500)' }}>Issuer</span>
-                <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', color: 'var(--color-neutral-300)' }}>km.isro.gov.in</span>
+                <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', color: 'var(--color-neutral-300)' }}>QuMail Key Manager</span>
               </div>
             </div>
           </div>

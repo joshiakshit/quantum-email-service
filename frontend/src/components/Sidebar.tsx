@@ -2,7 +2,9 @@ import {
   Inbox, Send, FileEdit, Star, Archive, Trash2,
   Key, Settings, ShieldCheck, Plus,
 } from 'lucide-react';
-import { FOLDER_IDS, FOLDER_LABELS, LABELS, EMAILS } from '@/data';
+import { FOLDER_IDS, FOLDER_LABELS, LABELS } from '@/data';
+import { getInitials } from '@/data';
+import type { Email, AuthState } from '@/types';
 
 const FOLDER_ICONS: Record<string, React.ReactNode> = {
   inbox: <Inbox size={15} />,
@@ -16,6 +18,8 @@ const FOLDER_ICONS: Record<string, React.ReactNode> = {
 interface Props {
   activeFolder: string;
   settingsOpen: boolean;
+  emails: Email[];
+  auth: AuthState;
   onSelectFolder: (id: string) => void;
   onOpenCompose: () => void;
   onOpenKeyPanel: () => void;
@@ -23,10 +27,11 @@ interface Props {
 }
 
 export default function Sidebar({
-  activeFolder, settingsOpen, onSelectFolder,
-  onOpenCompose, onOpenKeyPanel, onOpenSettings,
+  activeFolder, settingsOpen, emails, auth,
+  onSelectFolder, onOpenCompose, onOpenKeyPanel, onOpenSettings,
 }: Props) {
-  const unreadInbox = EMAILS.filter(e => e.folder === 'inbox' && e.unread).length;
+  const unreadInbox = emails.filter(e => e.folder === 'inbox' && e.unread).length;
+  const initials = getInitials(auth.name);
 
   return (
     <div
@@ -170,14 +175,14 @@ export default function Sidebar({
             fontSize: 12, fontWeight: 600, color: 'var(--color-accent-200)', flex: 'none',
           }}
         >
-          VK
+          {initials}
         </div>
         <div style={{ minWidth: 0, flex: 1 }}>
           <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-neutral-200)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            Vikram K.
+            {auth.name}
           </div>
           <div style={{ fontSize: 10, color: 'var(--color-neutral-500)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            v.krishnan@isro.gov.in
+            {auth.email}
           </div>
         </div>
       </div>
