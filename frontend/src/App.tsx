@@ -10,13 +10,13 @@ import type { Email, AuthState } from './types';
 
 function useTheme() {
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
-    const stored = localStorage.getItem('qumail_theme');
+    const stored = localStorage.getItem('qmail_theme');
     return stored === 'light' ? 'light' : 'dark';
   });
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
-    localStorage.setItem('qumail_theme', theme);
+    localStorage.setItem('qmail_theme', theme);
   }, [theme]);
 
   const toggle = useCallback(() => setTheme(t => t === 'dark' ? 'light' : 'dark'), []);
@@ -37,11 +37,11 @@ export default function App() {
   const [settingsTab, setSettingsTab] = useState('security');
 
   useEffect(() => {
-    const token = localStorage.getItem('qumail_token');
+    const token = localStorage.getItem('qmail_token');
     if (token) {
       api.getAuthStatus()
         .then(data => setAuth({ token, ...data }))
-        .catch(() => localStorage.removeItem('qumail_token'))
+        .catch(() => localStorage.removeItem('qmail_token'))
         .finally(() => setAuthChecked(true));
     } else {
       setAuthChecked(true);
@@ -76,7 +76,7 @@ export default function App() {
 
   async function handleLogout() {
     try { await api.logout(); } catch {}
-    localStorage.removeItem('qumail_token');
+    localStorage.removeItem('qmail_token');
     setAuth(null);
     setEmails([]);
     setSelectedId(null);

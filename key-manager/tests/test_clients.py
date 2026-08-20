@@ -1,5 +1,5 @@
 """
-QuMail Key Manager — Client Tests
+QMail Key Manager — Client Tests
 
 Tests:
   1.  Client registration success

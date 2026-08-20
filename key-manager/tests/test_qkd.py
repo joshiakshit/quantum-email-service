@@ -1,5 +1,5 @@
 """
-QuMail Key Manager — QKD Service Unit Tests
+QMail Key Manager — QKD Service Unit Tests
 
 Tests the QKDService class in isolation (no HTTP layer).
 """
@@ -7,7 +7,7 @@ Tests the QKDService class in isolation (no HTTP layer).
 import base64
 import pytest
 import pytest_asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 
@@ -71,9 +71,8 @@ async def test_generate_key_uniqueness(qkd: QKDService, qkd_db: AsyncSession):
 # ── Test 4: Key expiry is set correctly ───────────────────────────────────────
 async def test_generate_key_expiry(qkd: QKDService, qkd_db: AsyncSession):
     key = await qkd.generate_key(qkd_db, "QM-ALICE001", "QM-BOB00001")
-    assert key.expires_at > datetime.utcnow()
-    # Should expire roughly 24 hours from now (within 10-second tolerance)
-    expected = datetime.utcnow() + timedelta(hours=24)
+    assert key.expires_at > datetime.now(timezone.utc).replace(tzinfo=None)
+    expected = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=24)
     delta = abs((key.expires_at - expected).total_seconds())
     assert delta < 10
 
@@ -117,7 +116,7 @@ async def test_retrieve_nonexistent_key(qkd: QKDService, qkd_db: AsyncSession):
 async def test_retrieve_expired_key(qkd: QKDService, qkd_db: AsyncSession):
     from fastapi import HTTPException
     key = await qkd.generate_key(qkd_db, "QM-ALICE001", "QM-BOB00001")
-    key.expires_at = datetime.utcnow() - timedelta(hours=1)
+    key.expires_at = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=1)
     key.status = KeyStatus.EXPIRED
     await qkd_db.commit()
 
@@ -131,7 +130,7 @@ async def test_expire_keys_batch(qkd: QKDService, qkd_db: AsyncSession):
     # Generate 3 keys and manually push their expiry into the past
     for i in range(3):
         k = await qkd.generate_key(qkd_db, f"QM-S{i:07d}", f"QM-R{i:07d}")
-        k.expires_at = datetime.utcnow() - timedelta(minutes=1)
+        k.expires_at = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=1)
     await qkd_db.commit()
 
     expired_count = await qkd.expire_keys(qkd_db)

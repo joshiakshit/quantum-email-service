@@ -90,7 +90,7 @@ export default function AuthScreen({ onAuth }: Props) {
       clearInterval(stepInterval);
       setKeygenStep(KEYGEN_STEPS.length);
       setTimeout(() => {
-        localStorage.setItem('qumail_token', data.token);
+        localStorage.setItem('qmail_token', data.token);
         onAuth(data);
       }, 600);
     } catch (err: unknown) {
@@ -376,7 +376,7 @@ export default function AuthScreen({ onAuth }: Props) {
                   fontFamily: 'var(--font-mono)',
                   animation: 'fadeIn 0.2s ease-out',
                 }}>
-                  Your address: <span style={{ color: 'var(--accent)' }}>{username.trim()}@qumail.secure</span>
+                  Your address: <span style={{ color: 'var(--accent)' }}>{username.trim()}@qmail.secure</span>
                 </div>
               )}
             </div>

@@ -5,7 +5,7 @@ import os
 import secrets
 import base64
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -13,6 +13,11 @@ from fastapi import HTTPException, status
 
 from app.config import get_settings
 from app.database.schema import SessionKey, KeyStatus
+
+
+def _utcnow() -> datetime:
+    """Naive UTC now — SQLite strips tzinfo on round-trip."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 from qkd_sim.bb84 import BB84Simulator
@@ -51,7 +56,7 @@ class QKDService:
         key_material_b64 = base64.b64encode(result.final_key).decode("utf-8")
 
         key_id = _generate_key_id()
-        now = datetime.utcnow()
+        now = _utcnow()
         expires_at = now + timedelta(hours=settings.session_key_expiry_hours)
 
         session_key = SessionKey(
@@ -70,11 +75,7 @@ class QKDService:
 
         logger.info(
             "[BB84-QKD-SIM] Generated key: id=%s sender=%s recipient=%s qber=%.4f expires=%s",
-            key_id,
-            sender_id,
-            recipient_id,
-            result.qber,
-            expires_at.isoformat(),
+            key_id, sender_id, recipient_id, result.qber, expires_at.isoformat(),
         )
         return session_key
 
@@ -112,7 +113,7 @@ class QKDService:
         return key
 
     async def expire_keys(self, db: AsyncSession) -> int:
-        now = datetime.utcnow()
+        now = _utcnow()
         result = await db.execute(
             select(SessionKey).where(
                 SessionKey.status == KeyStatus.ACTIVE,
@@ -131,7 +132,7 @@ class QKDService:
     async def _expire_stale_keys(
         self, db: AsyncSession, sender_id: str, recipient_id: str
     ) -> None:
-        now = datetime.utcnow()
+        now = _utcnow()
         result = await db.execute(
             select(SessionKey).where(
                 SessionKey.sender_id == sender_id,
@@ -144,7 +145,7 @@ class QKDService:
             key.status = KeyStatus.EXPIRED
 
     async def _check_and_expire(self, db: AsyncSession, key: SessionKey) -> None:
-        if key.status == KeyStatus.ACTIVE and datetime.utcnow() > key.expires_at:
+        if key.status == KeyStatus.ACTIVE and _utcnow() > key.expires_at:
             key.status = KeyStatus.EXPIRED
 
 

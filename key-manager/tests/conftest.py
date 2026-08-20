@@ -1,5 +1,5 @@
 """
-QuMail Key Manager — Test Fixtures (conftest.py)
+QMail Key Manager — Test Fixtures (conftest.py)
 
 Provides:
   - In-memory SQLite test database (isolated per test)

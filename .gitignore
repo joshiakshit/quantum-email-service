@@ -25,6 +25,10 @@ venv/
 *.egg-info/
 build/
 
+# Database
+*.db
+*.sqlite3
+
 # Logs
 *.log
 npm-debug.log*

@@ -6,7 +6,7 @@ from .bb84 import BB84Simulator
 def main() -> None:
     simulator = BB84Simulator()
     print("=" * 40)
-    print("        QuMail QKD DEMONSTRATION")
+    print("        QMail QKD DEMONSTRATION")
     print("=" * 40)
     for title, eve_enabled in (("Scenario 1: No Eavesdropper", False), ("Scenario 2: Eve Present", True)):
         result = simulator.simulate(256, eve_enabled=eve_enabled)

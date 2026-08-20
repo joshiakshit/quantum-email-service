@@ -1,5 +1,5 @@
 """
-QuMail Key Manager — Key & QKD Tests
+QMail Key Manager — Key & QKD Tests
 
 Tests:
   1.  Public-key retrieval
@@ -15,7 +15,7 @@ Tests:
 """
 
 import base64
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -59,15 +59,15 @@ async def test_session_key_generation(client: AsyncClient, alice: dict, bob: dic
     data = resp.json()
     assert data["sender_id"] == alice["client_id"]
     assert data["recipient_id"] == bob["client_id"]
-    assert data["algorithm"] == "SIMULATED-QKD"
+    assert data["algorithm"] == "BB84-QKD-SIM"
     assert data["status"] == "active"
     assert data["key_id"].startswith("KEY-")
     # Key material should be valid base64 of 32 bytes (256-bit)
     raw = base64.b64decode(data["key_material"], validate=True)
     assert len(raw) == 32
     # Expiry should be in the future
-    expires = datetime.fromisoformat(data["expires_at"])
-    assert expires > datetime.utcnow()
+    expires = datetime.fromisoformat(data["expires_at"]).replace(tzinfo=None)
+    assert expires > datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 # ── Test 4: Session-key retrieval by key_id ───────────────────────────────────
@@ -152,7 +152,7 @@ async def test_expired_key_returns_410(
         select(SessionKey).where(SessionKey.key_id == key_id)
     )
     key = result.scalar_one()
-    key.expires_at = datetime.utcnow() - timedelta(hours=1)
+    key.expires_at = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=1)
     key.status = KeyStatus.EXPIRED
     await db_session.commit()
 
@@ -231,6 +231,6 @@ async def test_full_alice_bob_flow(client: AsyncClient, alice: dict, bob: dict):
     )
     assert sk_resp.status_code == 201
     sk_data = sk_resp.json()
-    assert sk_data["algorithm"] == "SIMULATED-QKD"
+    assert sk_data["algorithm"] == "BB84-QKD-SIM"
     assert sk_data["sender_id"] == alice["client_id"]
     assert sk_data["recipient_id"] == bob["client_id"]

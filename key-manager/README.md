@@ -1,13 +1,13 @@
-# QuMail Key Manager — M2
+# QMail Key Manager — M2
 
 > **Quantum-Resistant Key Distribution Service**  
-> Part of the QuMail PQC + Simulated QKD Email Client Architecture.
+> Part of the QMail PQC + Simulated QKD Email Client Architecture.
 
 ---
 
 ## Overview
 
-The **Key Manager** is the M2 component of QuMail. It provides:
+The **Key Manager** is the M2 component of QMail. It provides:
 
 - ✅ **Client registration** with ML-KEM / ML-DSA public-key storage  
 - ✅ **Public-key retrieval** for recipient lookup by the Integration Lead  
@@ -16,7 +16,7 @@ The **Key Manager** is the M2 component of QuMail. It provides:
 - ✅ **SQLite database** (PostgreSQL-ready via a single env-var change)  
 - ✅ **Independently runnable** — clone, install, run `uvicorn`  
 
-> ⚠️ **QKD DISCLAIMER**: Session keys use `SIMULATED-QKD` (CSPRNG). This does **not** provide real quantum key distribution security. Replace `QKDService` with a real QKD interface when available.
+> ⚠️ **QKD DISCLAIMER**: Session keys use `BB84-QKD-SIM` (CSPRNG). This does **not** provide real quantum key distribution security. Replace `QKDService` with a real QKD interface when available.
 
 ---
 
@@ -31,7 +31,7 @@ The **Key Manager** is the M2 component of QuMail. It provides:
 
 ```bash
 # 1. Clone / copy the key-manager folder
-cd "D:\Quantum Computing\qumail-key-manager"
+cd "D:\Quantum Computing\qmail-key-manager"
 
 # 2. (Optional but recommended) Create a virtual environment
 python -m venv .venv
@@ -192,7 +192,7 @@ Content-Type: application/json
   "sender_id": "QM-A1B2C3D4",
   "recipient_id": "QM-B5C6D7E8",
   "key_material": "<base64-encoded-32-byte-key>",
-  "algorithm": "SIMULATED-QKD",
+  "algorithm": "BB84-QKD-SIM",
   "created_at": "2026-08-19T12:00:00",
   "expires_at": "2026-08-20T12:00:00",
   "status": "active"
@@ -214,7 +214,7 @@ Authorization: Bearer <bob-token>
   "sender_id": "QM-A1B2C3D4",
   "recipient_id": "QM-B5C6D7E8",
   "key_material": "<same-base64-key-material>",
-  "algorithm": "SIMULATED-QKD",
+  "algorithm": "BB84-QKD-SIM",
   "created_at": "2026-08-19T12:00:00",
   "expires_at": "2026-08-20T12:00:00",
   "status": "active"
@@ -279,7 +279,7 @@ SQLite by default. Switch to PostgreSQL by changing `DATABASE_URL` in `.env`.
 | `sender_id` | TEXT | Sender's client_id |
 | `recipient_id` | TEXT | Recipient's client_id |
 | `key_material` | TEXT | Base64 session key (CSPRNG-generated) |
-| `algorithm` | TEXT | Always `SIMULATED-QKD` for MVP |
+| `algorithm` | TEXT | Always `BB84-QKD-SIM` for MVP |
 | `created_at` | DATETIME | Creation timestamp |
 | `expires_at` | DATETIME | Expiry timestamp |
 | `status` | ENUM | `active`, `expired`, `revoked` |
@@ -313,7 +313,7 @@ Key Manager (this service)
 Bob
 ```
 
-Keys are labeled `SIMULATED-QKD` throughout all responses and logs.
+Keys are labeled `BB84-QKD-SIM` throughout all responses and logs.
 
 ### How to swap in a real QKD simulator
 
@@ -355,7 +355,7 @@ curl -X POST http://localhost:8000/api/v1/auth/token \
 
 All protected endpoints accept `Authorization: Bearer <token>`.
 
-### Integration into the QuMail Flow
+### Integration into the QMail Flow
 
 ```
 Compose Email
@@ -364,7 +364,7 @@ Integration Layer
       ↓  GET /api/v1/keys/public/{recipient_id}
 Key Manager ──────────────────────────────────→ Recipient ML-KEM / ML-DSA public keys
       ↓  POST /api/v1/keys/request
-Key Manager ──────────────────────────────────→ SIMULATED-QKD session key material
+Key Manager ──────────────────────────────────→ BB84-QKD-SIM session key material
       ↓
 M1 Crypto Module (AES-256-GCM + ML-DSA signature)
       ↓
@@ -406,7 +406,7 @@ Expected: **28+ tests passing**.
 
 ---
 
-## Component Ownership (QuMail Architecture)
+## Component Ownership (QMail Architecture)
 
 | Module | Owner | Responsibility |
 |--------|-------|----------------|

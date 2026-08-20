@@ -112,7 +112,7 @@ export default function KeyManagementModal({ auth, onClose }: Props) {
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginTop: 4 }}>
                 <span style={{ color: 'var(--fg-muted)' }}>Issuer</span>
-                <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--fg-secondary)' }}>QuMail Key Manager</span>
+                <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--fg-secondary)' }}>QMail Key Manager</span>
               </div>
             </div>
           </div>

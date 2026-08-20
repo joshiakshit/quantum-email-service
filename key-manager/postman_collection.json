@@ -1,7 +1,7 @@
 {
   "info": {
-    "name": "QuMail Key Manager API",
-    "description": "Complete API collection for the QuMail Key Manager (M2).\n\nWorkflow:\n1. Register Alice → save client_id + registration_secret\n2. Get Token for Alice\n3. Register Bob → save client_id + registration_secret\n4. Get Token for Bob\n5. Alice gets Bob's public keys\n6. Alice requests session-key material\n7. Bob retrieves the same session key",
+    "name": "QMail Key Manager API",
+    "description": "Complete API collection for the QMail Key Manager (M2).\n\nWorkflow:\n1. Register Alice → save client_id + registration_secret\n2. Get Token for Alice\n3. Register Bob → save client_id + registration_secret\n4. Get Token for Bob\n5. Alice gets Bob's public keys\n6. Alice requests session-key material\n7. Bob retrieves the same session key",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -30,7 +30,7 @@
               "name": "200 OK",
               "status": "OK",
               "code": 200,
-              "body": "{\n  \"status\": \"ok\",\n  \"service\": \"QuMail Key Manager\",\n  \"version\": \"1.0.0\"\n}"
+              "body": "{\n  \"status\": \"ok\",\n  \"service\": \"QMail Key Manager\",\n  \"version\": \"1.0.0\"\n}"
             }
           ]
         }
@@ -174,7 +174,7 @@
                   "var data = pm.response.json();",
                   "pm.collectionVariables.set('session_key_id', data.key_id);",
                   "pm.test('Status 201', () => pm.response.to.have.status(201));",
-                  "pm.test('algorithm is SIMULATED-QKD', () => pm.expect(data.algorithm).to.eql('SIMULATED-QKD'));"
+                  "pm.test('algorithm is BB84-QKD-SIM', () => pm.expect(data.algorithm).to.eql('BB84-QKD-SIM'));"
                 ]
               }
             }

@@ -74,7 +74,7 @@ def decrypt_raw_message(raw_email: str, recipient_kem_secret_key: bytes) -> dict
         }
 
     Raises:
-        ReceiveError: if the message isn't a valid QuMail MIME message
+        ReceiveError: if the message isn't a valid QMail MIME message
             (no envelope part, malformed multipart, etc.)
         EnvelopeError: if open_envelope() fails (bad version, signature
             verification failure, decryption/tag failure).
@@ -84,7 +84,7 @@ def decrypt_raw_message(raw_email: str, recipient_kem_secret_key: bytes) -> dict
     try:
         envelope_json = mime_to_envelope(raw_email)
     except ValueError as exc:
-        raise ReceiveError(f"Not a valid QuMail message: {exc}") from exc
+        raise ReceiveError(f"Not a valid QMail message: {exc}") from exc
 
     try:
         plaintext = open_envelope(envelope_json, recipient_kem_secret_key)
@@ -100,12 +100,12 @@ def fetch_and_decrypt(
     folder: str = "INBOX",
     limit: int | None = 10,
     search_criteria: str = "ALL",
-    skip_non_qumail: bool = True,
+    skip_non_qmail: bool = True,
 ) -> list[dict]:
     """
     Full receive flow: IMAP fetch -> for each message, decrypt if it's a
-    QuMail message. Non-QuMail messages are skipped by default
-    (skip_non_qumail=True) rather than raising, since a real inbox may
+    QMail message. Non-QMail messages are skipped by default
+    (skip_non_qmail=True) rather than raising, since a real inbox may
     contain unrelated mail.
     """
     results = []
@@ -113,7 +113,7 @@ def fetch_and_decrypt(
         try:
             results.append(decrypt_raw_message(raw_email, recipient_kem_secret_key))
         except ReceiveError:
-            if skip_non_qumail:
+            if skip_non_qmail:
                 continue
             raise
     return results

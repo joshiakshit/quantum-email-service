@@ -1,7 +1,7 @@
 const BASE = '/api';
 
 function authHeaders(): Record<string, string> {
-  const token = localStorage.getItem('qumail_token');
+  const token = localStorage.getItem('qmail_token');
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 

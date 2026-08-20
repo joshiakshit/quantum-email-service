@@ -1,5 +1,5 @@
 """
-QuMail Key Manager — Auth Tests
+QMail Key Manager — Auth Tests
 
 Tests:
   1.  Obtain JWT token with valid credentials

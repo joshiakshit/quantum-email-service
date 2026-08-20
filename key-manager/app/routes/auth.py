@@ -1,9 +1,3 @@
-"""
-QuMail Key Manager — Auth Routes
-
-POST /api/v1/auth/token  — exchange client_id + registration_secret for a JWT
-"""
-
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,9 +14,7 @@ router = APIRouter(prefix="/api/v1/auth", tags=["Authentication"])
     response_model=TokenResponse,
     summary="Obtain JWT access token",
     description=(
-        "Exchange your `client_id` and `registration_secret` (returned once at "
-        "registration) for a JWT Bearer token. Include this token in the "
-        "`Authorization: Bearer <token>` header for all protected endpoints."
+        "Exchange your `client_id` and `registration_secret` for a JWT Bearer token."
     ),
 )
 async def get_token(

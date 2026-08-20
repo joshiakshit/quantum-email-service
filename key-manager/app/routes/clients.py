@@ -1,10 +1,3 @@
-"""
-QuMail Key Manager — Client Routes
-
-POST /api/v1/clients/register     — register a new client (open, no JWT required)
-GET  /api/v1/clients/{client_id}  — fetch client info [JWT protected]
-"""
-
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,13 +18,11 @@ router = APIRouter(prefix="/api/v1/clients", tags=["Clients"])
     "/register",
     response_model=ClientRegisterResponse,
     status_code=201,
-    summary="Register a new QuMail client",
+    summary="Register a new QMail client",
     description=(
-        "Register a new client by providing a name and ML-KEM / ML-DSA public keys "
-        "(supplied by the M1 Crypto Module). Returns a unique `client_id` and a "
-        "`registration_secret`. **Save the secret immediately** — it is shown once "
-        "and never stored in plaintext. Use the secret to obtain JWT tokens via "
-        "`POST /api/v1/auth/token`."
+        "Register a new client by providing a name and ML-KEM / ML-DSA public keys. "
+        "Returns a unique `client_id` and a `registration_secret`. "
+        "Save the secret immediately — it is shown once and never stored in plaintext."
     ),
 )
 async def register(
@@ -51,9 +42,8 @@ async def register(
     response_model=ClientInfoResponse,
     summary="Get client information",
     description=(
-        "Retrieve public information about a registered QuMail client. "
-        "Only public keys are returned — private keys are never stored in the Key Manager. "
-        "Requires a valid JWT Bearer token."
+        "Retrieve public information about a registered QMail client. "
+        "Only public keys are returned. Requires a valid JWT Bearer token."
     ),
 )
 async def get_client(

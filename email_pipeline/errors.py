@@ -1,12 +1,12 @@
-class QuMailError(Exception):
+class QMailError(Exception):
     """Base class for all M3 email-pipeline errors."""
 
 
-class ConfigurationError(QuMailError):
+class ConfigurationError(QMailError):
     """Raised when required configuration/environment variables are missing."""
 
 
-class KeyLookupError(QuMailError):
+class KeyLookupError(QMailError):
     """
     Raised when M3 cannot obtain the key material it needs from M2's
     Key Manager (or from a caller-supplied fallback). Wraps underlying
@@ -14,7 +14,7 @@ class KeyLookupError(QuMailError):
     """
 
 
-class EnvelopeError(QuMailError):
+class EnvelopeError(QMailError):
     """
     Raised when M1's seal_envelope/open_envelope fails — e.g. signature
     verification failure, GCM tag mismatch, malformed/unsupported envelope
@@ -23,10 +23,10 @@ class EnvelopeError(QuMailError):
     """
 
 
-class SendError(QuMailError):
+class SendError(QMailError):
     """Raised when SMTP sending fails (connection, auth, or protocol error)."""
 
 
-class ReceiveError(QuMailError):
+class ReceiveError(QMailError):
     """Raised when IMAP/POP3 fetching fails, or a fetched message is not a
-    valid QuMail message (no envelope part found, malformed MIME, etc.)."""
+    valid QMail message (no envelope part found, malformed MIME, etc.)."""

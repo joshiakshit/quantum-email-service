@@ -151,13 +151,13 @@ def test_mime_roundtrip():
     message = b"MIME round-trip test message"
     sealed = seal_envelope(message, bob_kem_pk, alice_sig_sk, alice_sig_pk)
 
-    mime_msg = envelope_to_mime(sealed, "alice@qumail.local", "bob@qumail.local", "Test Subject")
+    mime_msg = envelope_to_mime(sealed, "alice@qmail.local", "bob@qmail.local", "Test Subject")
     raw_email = mime_msg.as_string()
 
     metadata = extract_metadata(raw_email)
-    assert metadata["is_qumail"] is True
-    assert metadata["from"] == "alice@qumail.local"
-    assert metadata["to"] == "bob@qumail.local"
+    assert metadata["is_qmail"] is True
+    assert metadata["from"] == "alice@qmail.local"
+    assert metadata["to"] == "bob@qmail.local"
     assert metadata["subject"] == "Test Subject"
 
     recovered_envelope = mime_to_envelope(raw_email)
@@ -172,19 +172,19 @@ def test_qkd_simulator():
 
     try:
         qkd = QKDSimulator(store_path)
-        session_id, key = qkd.generate_shared_key("alice@qumail.local", "bob@qumail.local")
+        session_id, key = qkd.generate_shared_key("alice@qmail.local", "bob@qmail.local")
         assert len(key) == 32
-        assert qkd.has_shared_key("alice@qumail.local", "bob@qumail.local")
-        assert qkd.has_shared_key("bob@qumail.local", "alice@qumail.local")
+        assert qkd.has_shared_key("alice@qmail.local", "bob@qmail.local")
+        assert qkd.has_shared_key("bob@qmail.local", "alice@qmail.local")
 
-        retrieved = qkd.get_shared_key("alice@qumail.local", "bob@qumail.local")
+        retrieved = qkd.get_shared_key("alice@qmail.local", "bob@qmail.local")
         assert retrieved == key
 
         qkd2 = QKDSimulator(store_path)
-        assert qkd2.get_shared_key("alice@qumail.local", "bob@qumail.local") == key
+        assert qkd2.get_shared_key("alice@qmail.local", "bob@qmail.local") == key
 
-        qkd.revoke_key("alice@qumail.local", "bob@qumail.local")
-        assert not qkd.has_shared_key("alice@qumail.local", "bob@qumail.local")
+        qkd.revoke_key("alice@qmail.local", "bob@qmail.local")
+        assert not qkd.has_shared_key("alice@qmail.local", "bob@qmail.local")
     finally:
         os.unlink(store_path)
     print(f"[PASS] QKD simulator: generate, retrieve, persist, revoke all work")

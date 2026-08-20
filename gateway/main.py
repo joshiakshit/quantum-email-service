@@ -19,7 +19,7 @@ from crypto.email_helpers import envelope_to_mime, mime_to_envelope, extract_met
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s")
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="QuMail Gateway", version="1.0.0")
+app = FastAPI(title="QMail Gateway", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -29,8 +29,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-KM_URL = os.environ.get("QUMAIL_KM_URL", "http://localhost:8000")
-AUTH_SERVICE_URL = os.environ.get("QUMAIL_AUTH_URL", "https://auth.joshiakshit.live")
+KM_URL = os.environ.get("QMAIL_KM_URL", "http://localhost:8000")
+AUTH_SERVICE_URL = os.environ.get("QMAIL_AUTH_URL", "https://auth.joshiakshit.live")
 
 sessions: dict = {}
 demo_mailbox: dict = {}
@@ -304,7 +304,7 @@ async def send_email(req: SendReq, authorization: str = Header(None)):
     )
     mime_msg = envelope_to_mime(env_json, s["email"], req.to_email, req.subject)
 
-    smtp_host = os.environ.get("QUMAIL_SMTP_HOST")
+    smtp_host = os.environ.get("QMAIL_SMTP_HOST")
     if smtp_host:
         from email_pipeline.Smtp_sender import send_mime_message
         from email_pipeline.config import SMTPConfig
