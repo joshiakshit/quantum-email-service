@@ -1,18 +1,18 @@
 import {
   Inbox, Send, FileEdit, Star, Archive, Trash2,
-  Key, Settings, ShieldCheck, Plus, LogOut, Sun, Moon,
+  Key, Settings, ShieldCheck, LogOut, Sun, Moon, Pencil,
 } from 'lucide-react';
 import { FOLDER_IDS, FOLDER_LABELS, LABELS } from '@/data';
 import { getInitials } from '@/data';
 import type { Email, AuthState } from '@/types';
 
 const FOLDER_ICONS: Record<string, React.ReactNode> = {
-  inbox: <Inbox size={15} />,
-  sent: <Send size={15} />,
-  drafts: <FileEdit size={15} />,
-  starred: <Star size={15} />,
-  archive: <Archive size={15} />,
-  trash: <Trash2 size={15} />,
+  inbox: <Inbox size={18} />,
+  sent: <Send size={18} />,
+  drafts: <FileEdit size={18} />,
+  starred: <Star size={18} />,
+  archive: <Archive size={18} />,
+  trash: <Trash2 size={18} />,
 };
 
 interface Props {
@@ -39,11 +39,10 @@ export default function Sidebar({
   return (
     <div style={{
       width: 240, flex: 'none', display: 'flex', flexDirection: 'column',
-      background: 'var(--bg-secondary)',
       borderRight: '1px solid var(--border)',
     }}>
       {/* Brand */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '18px 18px 14px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '16px 18px 12px' }}>
         <div style={{
           width: 32, height: 32, borderRadius: 'var(--radius-m)',
           background: 'var(--accent)',
@@ -62,19 +61,34 @@ export default function Sidebar({
       </div>
 
       {/* Compose */}
-      <div style={{ padding: '0 12px 10px' }}>
+      <div style={{ padding: '4px 12px 14px' }}>
         <button
-          className="btn btn-primary"
           onClick={onOpenCompose}
-          style={{ width: '100%', justifyContent: 'center', gap: 8, padding: '10px 0', height: 38 }}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 10,
+            padding: '12px 20px', cursor: 'pointer',
+            background: 'var(--accent-bg)', color: 'var(--fg)',
+            border: '1px solid var(--accent-border)',
+            borderRadius: 'var(--radius-full)',
+            fontSize: 14, fontWeight: 500, fontFamily: 'inherit',
+            transition: 'box-shadow 0.2s, background 0.15s',
+            boxShadow: 'var(--shadow-sm)',
+          }}
+          onMouseEnter={e => {
+            e.currentTarget.style.boxShadow = 'var(--shadow-md)';
+            e.currentTarget.style.background = 'var(--accent-bg)';
+          }}
+          onMouseLeave={e => {
+            e.currentTarget.style.boxShadow = 'var(--shadow-sm)';
+          }}
         >
-          <Plus size={14} />
-          New message
+          <Pencil size={16} color="var(--accent)" />
+          Compose
         </button>
       </div>
 
       {/* Folders */}
-      <div style={{ padding: '4px 8px', display: 'flex', flexDirection: 'column', gap: 1 }}>
+      <div style={{ padding: '0 8px', display: 'flex', flexDirection: 'column', gap: 1 }}>
         {FOLDER_IDS.map(fid => {
           const active = fid === activeFolder && !settingsOpen;
           const count = fid === 'inbox' ? unreadInbox : 0;
@@ -83,6 +97,7 @@ export default function Sidebar({
               key={fid}
               className={`sidebar-row ${active ? 'active' : ''}`}
               onClick={() => onSelectFolder(fid)}
+              style={{ padding: '7px 12px', borderRadius: 'var(--radius-full)' }}
             >
               <span style={{
                 display: 'flex', alignItems: 'center',
@@ -90,14 +105,10 @@ export default function Sidebar({
               }}>
                 {FOLDER_ICONS[fid]}
               </span>
-              <span style={{ flex: 1 }}>{FOLDER_LABELS[fid]}</span>
+              <span style={{ flex: 1, fontSize: 13, fontWeight: active ? 600 : 400 }}>{FOLDER_LABELS[fid]}</span>
               {count > 0 && (
                 <span style={{
-                  fontSize: 10, minWidth: 18, height: 18,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  background: 'var(--accent-bg)', color: 'var(--accent)',
-                  borderRadius: 'var(--radius-full)', padding: '0 5px',
-                  fontWeight: 600,
+                  fontSize: 11, fontWeight: 600, color: 'var(--fg-secondary)',
                 }}>
                   {count}
                 </span>
@@ -110,7 +121,7 @@ export default function Sidebar({
       {/* Labels */}
       <div style={{ padding: '16px 18px 6px' }}>
         <div style={{
-          fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase',
+          fontSize: 11, letterSpacing: '0.04em',
           color: 'var(--fg-muted)', marginBottom: 8, fontWeight: 500,
         }}>
           Labels
@@ -118,11 +129,11 @@ export default function Sidebar({
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
           {LABELS.map(l => (
             <div key={l.name} style={{
-              display: 'flex', alignItems: 'center', gap: 8,
-              padding: '5px 6px', fontSize: 12, color: 'var(--fg-secondary)',
-              cursor: 'pointer', borderRadius: 'var(--radius-s)',
+              display: 'flex', alignItems: 'center', gap: 10,
+              padding: '5px 12px', fontSize: 13, color: 'var(--fg-secondary)',
+              cursor: 'pointer', borderRadius: 'var(--radius-full)',
             }}>
-              <span style={{ width: 8, height: 8, borderRadius: 2, background: l.color, flex: 'none' }} />
+              <span style={{ width: 10, height: 10, borderRadius: '50%', background: l.color, flex: 'none' }} />
               {l.name}
             </div>
           ))}
@@ -131,40 +142,18 @@ export default function Sidebar({
 
       <div style={{ flex: 1 }} />
 
-      {/* Encryption status */}
-      <div style={{
-        margin: '0 10px 8px', padding: 12, borderRadius: 'var(--radius-m)',
-        background: 'var(--green-bg)', border: '1px solid var(--green-border)',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-          <span style={{
-            width: 8, height: 8, borderRadius: '50%', background: 'var(--green)',
-            flex: 'none', animation: 'pulseGlow 3s ease-in-out infinite',
-          }} />
-          <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--green)' }}>Quantum channel active</span>
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {[['KEM', 'ML-KEM-768'], ['DSA', 'ML-DSA-65'], ['Entropy', 'QRNG seeded']].map(([k, v]) => (
-            <div key={k} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10 }}>
-              <span style={{ color: 'var(--fg-muted)' }}>{k}</span>
-              <span style={{ color: 'var(--fg-secondary)', fontFamily: 'var(--font-mono)' }}>{v}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-
       {/* Bottom actions */}
       <div style={{ padding: '4px 8px', display: 'flex', flexDirection: 'column', gap: 1 }}>
-        <div className="sidebar-row" onClick={onOpenKeyPanel} style={{ fontSize: 12 }}>
-          <Key size={14} strokeWidth={1.7} />
+        <div className="sidebar-row" onClick={onOpenKeyPanel} style={{ fontSize: 13, borderRadius: 'var(--radius-full)' }}>
+          <Key size={18} strokeWidth={1.7} />
           Key management
         </div>
-        <div className="sidebar-row" onClick={onOpenSettings} style={{ fontSize: 12 }}>
-          <Settings size={14} strokeWidth={1.7} />
+        <div className="sidebar-row" onClick={onOpenSettings} style={{ fontSize: 13, borderRadius: 'var(--radius-full)' }}>
+          <Settings size={18} strokeWidth={1.7} />
           Settings
         </div>
-        <div className="sidebar-row" onClick={onToggleTheme} style={{ fontSize: 12 }}>
-          {theme === 'dark' ? <Sun size={14} strokeWidth={1.7} /> : <Moon size={14} strokeWidth={1.7} />}
+        <div className="sidebar-row" onClick={onToggleTheme} style={{ fontSize: 13, borderRadius: 'var(--radius-full)' }}>
+          {theme === 'dark' ? <Sun size={18} strokeWidth={1.7} /> : <Moon size={18} strokeWidth={1.7} />}
           {theme === 'dark' ? 'Light mode' : 'Dark mode'}
         </div>
       </div>

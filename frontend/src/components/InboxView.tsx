@@ -22,32 +22,35 @@ export default function InboxView({ activeFolder, selectedId, search, emails, on
   const selected = emails.find(e => e.id === currentId) ?? null;
 
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'var(--bg-secondary)', minWidth: 0 }}>
-      {/* Top bar */}
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'var(--bg)', minWidth: 0 }}>
+      {/* Search bar */}
       <div style={{
         height: 52, flex: 'none', display: 'flex', alignItems: 'center', gap: 12,
-        padding: '0 20px', borderBottom: '1px solid var(--border)',
+        padding: '0 16px', borderBottom: '1px solid var(--border)',
       }}>
-        <div style={{ position: 'relative', flex: 1, maxWidth: 340 }}>
+        <div style={{ position: 'relative', flex: 1, maxWidth: 500 }}>
           <Search
-            size={14}
-            style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)' }}
+            size={16}
+            style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)' }}
             color="var(--fg-muted)"
           />
           <input
             className="input"
             value={search}
             onChange={e => onSearchChange(e.target.value)}
-            placeholder="Search messages..."
-            style={{ paddingLeft: 32, height: 34, fontSize: 13 }}
+            placeholder="Search mail"
+            style={{
+              paddingLeft: 36, height: 38, fontSize: 14,
+              borderRadius: 'var(--radius-full)',
+              background: 'var(--bg-secondary)',
+              border: '1px solid transparent',
+            }}
           />
         </div>
         <div style={{ flex: 1 }} />
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: 'var(--fg-muted)' }}>
-          <Lock size={12} color="var(--green)" strokeWidth={2.4} />
-          <span style={{ color: 'var(--green)', fontWeight: 500 }}>End-to-end encrypted</span>
-          <span style={{ color: 'var(--fg-faint)' }}>·</span>
-          <span>Post-quantum secured</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--fg-muted)' }}>
+          <Lock size={11} color="var(--green)" strokeWidth={2.4} />
+          <span style={{ color: 'var(--green)', fontWeight: 500, fontSize: 11 }}>PQC</span>
         </div>
       </div>
 
@@ -57,13 +60,14 @@ export default function InboxView({ activeFolder, selectedId, search, emails, on
         <div
           className="scrollbar-thin"
           style={{
-            width: 360, flex: 'none', borderRight: '1px solid var(--border)',
+            width: 380, flex: 'none', borderRight: '1px solid var(--border)',
             overflowY: 'auto', display: 'flex', flexDirection: 'column',
+            background: 'var(--bg)',
           }}
         >
           <div style={{
-            padding: '10px 16px 6px', fontSize: 10, letterSpacing: '0.08em',
-            textTransform: 'uppercase', color: 'var(--fg-muted)', fontWeight: 500,
+            padding: '12px 16px 8px', fontSize: 13,
+            color: 'var(--fg)', fontWeight: 600,
           }}>
             {FOLDER_LABELS[activeFolder] ?? activeFolder}
           </div>
@@ -73,78 +77,76 @@ export default function InboxView({ activeFolder, selectedId, search, emails, on
               flex: 1, display: 'flex', flexDirection: 'column',
               alignItems: 'center', justifyContent: 'center', padding: '40px 20px',
             }}>
-              <div style={{
-                width: 52, height: 52, borderRadius: '50%',
-                background: 'var(--accent-bg)', border: '1px solid var(--accent-border)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 14,
-              }}>
-                <Inbox size={22} color="var(--accent)" strokeWidth={1.5} />
-              </div>
-              <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--fg-secondary)', marginBottom: 6 }}>
+              <Inbox size={28} color="var(--fg-faint)" strokeWidth={1.4} />
+              <div style={{ fontSize: 13, color: 'var(--fg-muted)', marginTop: 12 }}>
                 No messages
-              </div>
-              <div style={{
-                fontSize: 12, color: 'var(--fg-muted)', textAlign: 'center',
-                lineHeight: 1.5, maxWidth: 200,
-              }}>
-                Send a quantum-encrypted email to get started
               </div>
             </div>
           )}
 
           {filtered.map(email => {
-            const av = AVATARS[email.avatarIdx % AVATARS.length];
-            const initials = getInitials(email.sender);
             const isSelected = email.id === currentId;
             return (
               <div
                 key={email.id}
-                className={`email-row ${isSelected ? 'selected' : ''}`}
                 onClick={() => onSelectEmail(email.id)}
+                style={{
+                  padding: '10px 16px',
+                  cursor: 'pointer',
+                  borderBottom: '1px solid var(--border-subtle)',
+                  background: isSelected ? 'var(--accent-bg)' : 'transparent',
+                  borderLeft: isSelected ? '3px solid var(--accent)' : '3px solid transparent',
+                  transition: 'background 0.1s',
+                }}
+                onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = 'var(--bg-hover)'; }}
+                onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = 'transparent'; }}
               >
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, minWidth: 0 }}>
-                  <div style={{
-                    width: 32, height: 32, borderRadius: '50%',
-                    background: av.bg, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 11, fontWeight: 600, color: av.color, flex: 'none', marginTop: 2,
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 0, minWidth: 0 }}>
+                  {/* Sender */}
+                  <span style={{
+                    fontSize: 13, fontWeight: email.unread ? 600 : 400,
+                    color: 'var(--fg)',
+                    width: 120, flex: 'none',
+                    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
                   }}>
-                    {initials}
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
-                      <span style={{
-                        fontSize: 13, fontWeight: email.unread ? 600 : 400, color: 'var(--fg)',
-                        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                      }}>
-                        {email.sender}
-                      </span>
-                      <span style={{ fontSize: 10, color: 'var(--fg-muted)', flex: 'none' }}>{email.time}</span>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 2 }}>
-                      {email.encrypted ? (
-                        <Lock size={10} color="var(--green)" strokeWidth={2.8} style={{ flex: 'none' }} />
-                      ) : (
-                        <Unlock size={10} color="var(--fg-faint)" strokeWidth={2.8} style={{ flex: 'none' }} />
-                      )}
-                      <span style={{
-                        fontSize: 12, color: 'var(--fg-secondary)',
-                        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                      }}>
-                        {email.subject}
-                      </span>
-                    </div>
-                    <div style={{
-                      fontSize: 11, color: 'var(--fg-muted)', marginTop: 2,
-                      whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                    }}>
-                      {email.preview}
-                    </div>
-                  </div>
-                </div>
-                {email.label && (
-                  <div style={{ marginTop: 6, marginLeft: 42 }}>
+                    {email.sender}
+                  </span>
+
+                  {/* Subject + preview */}
+                  <span style={{
+                    flex: 1, minWidth: 0,
+                    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                    fontSize: 13,
+                  }}>
                     <span style={{
-                      fontSize: 9, padding: '2px 6px', borderRadius: 3,
+                      color: 'var(--fg)',
+                      fontWeight: email.unread ? 500 : 400,
+                    }}>
+                      {email.subject}
+                    </span>
+                    <span style={{ color: 'var(--fg-muted)' }}>
+                      {' '} — {email.preview}
+                    </span>
+                  </span>
+
+                  {/* Right side: encryption + date */}
+                  <span style={{
+                    display: 'flex', alignItems: 'center', gap: 6,
+                    flex: 'none', marginLeft: 10,
+                  }}>
+                    {email.encrypted && (
+                      <Lock size={10} color="var(--green)" strokeWidth={2.6} />
+                    )}
+                    <span style={{ fontSize: 11, color: 'var(--fg-muted)', whiteSpace: 'nowrap' }}>
+                      {email.time}
+                    </span>
+                  </span>
+                </div>
+
+                {email.label && (
+                  <div style={{ marginTop: 4 }}>
+                    <span style={{
+                      fontSize: 9, padding: '1px 6px', borderRadius: 3,
                       background: email.labelBg, color: email.labelColor, fontWeight: 500,
                     }}>
                       {email.label}
@@ -165,16 +167,9 @@ export default function InboxView({ activeFolder, selectedId, search, emails, on
               height: '100%', display: 'flex', flexDirection: 'column',
               alignItems: 'center', justifyContent: 'center', padding: 40,
             }}>
-              <Mail size={32} color="var(--fg-faint)" strokeWidth={1.5} />
+              <Mail size={32} color="var(--fg-faint)" strokeWidth={1.4} />
               <div style={{ fontSize: 14, color: 'var(--fg-muted)', marginTop: 12 }}>
                 Select a message to read
-              </div>
-              <div style={{
-                display: 'flex', alignItems: 'center', gap: 6, marginTop: 16,
-                fontSize: 11, color: 'var(--fg-muted)',
-              }}>
-                <Lock size={11} color="var(--green)" strokeWidth={2.4} />
-                <span>All messages are end-to-end encrypted</span>
               </div>
             </div>
           )}

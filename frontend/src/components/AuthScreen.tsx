@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ShieldCheck, Lock, Fingerprint, Zap, Loader2, Eye, EyeOff, ArrowRight, Check } from 'lucide-react';
+import { ShieldCheck, Lock, Fingerprint, Zap, Loader2, Eye, EyeOff, ArrowRight, Mail } from 'lucide-react';
 import * as api from '@/api';
 import type { AuthState } from '@/types';
 
@@ -14,12 +14,6 @@ const FEATURES = [
   { icon: Zap, title: 'BB84 QKD', desc: 'Simulated quantum key distribution protocol' },
 ];
 
-const KEYGEN_STEPS = [
-  'Generating ML-KEM-768 keypair',
-  'Generating ML-DSA-65 signing keypair',
-  'Registering keys with Key Manager',
-  'Establishing secure session',
-];
 
 export default function AuthScreen({ onAuth }: Props) {
   const [mode, setMode] = useState<'login' | 'register'>('login');
@@ -30,8 +24,6 @@ export default function AuthScreen({ onAuth }: Props) {
   const [confirm, setConfirm] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [keygen, setKeygen] = useState(false);
-  const [keygenStep, setKeygenStep] = useState(0);
   const [error, setError] = useState('');
   const [formKey, setFormKey] = useState(0);
 
@@ -69,16 +61,6 @@ export default function AuthScreen({ onAuth }: Props) {
     }
 
     setLoading(true);
-    setKeygen(true);
-    setKeygenStep(0);
-
-    const stepInterval = setInterval(() => {
-      setKeygenStep(s => {
-        if (s < KEYGEN_STEPS.length - 1) return s + 1;
-        clearInterval(stepInterval);
-        return s;
-      });
-    }, 800);
 
     try {
       let data: api.AuthResponse;
@@ -87,110 +69,28 @@ export default function AuthScreen({ onAuth }: Props) {
       } else {
         data = await api.login(username.trim(), password);
       }
-      clearInterval(stepInterval);
-      setKeygenStep(KEYGEN_STEPS.length);
-      setTimeout(() => {
-        localStorage.setItem('qmail_token', data.token);
-        onAuth(data);
-      }, 600);
+      localStorage.setItem('qmail_token', data.token);
+      onAuth(data);
     } catch (err: unknown) {
-      clearInterval(stepInterval);
-      setKeygen(false);
-      setKeygenStep(0);
       setError(err instanceof Error ? err.message : 'Something went wrong');
       setLoading(false);
     }
   }
 
-  if (keygen && loading) {
+  if (loading) {
     return (
       <div style={{
         width: '100vw', height: '100vh',
         display: 'flex', flexDirection: 'column',
         alignItems: 'center', justifyContent: 'center',
         background: 'var(--bg)', color: 'var(--fg)',
-        fontFamily: 'var(--font-sans)', position: 'relative', overflow: 'hidden',
+        fontFamily: 'var(--font-sans)',
       }}>
-        <div className="auth-orb auth-orb-1" />
-        <div className="auth-orb auth-orb-2" />
-
-        <div style={{
-          position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column',
-          alignItems: 'center', gap: 32, maxWidth: 380, width: '100%', padding: '0 24px',
-          animation: 'fadeIn 0.5s ease-out',
-        }}>
-          <div style={{
-            width: 80, height: 80, borderRadius: '50%',
-            background: 'var(--accent-bg)',
-            border: '1px solid var(--accent-border)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            animation: 'pulseSoft 2s ease-in-out infinite',
-          }}>
-            <ShieldCheck size={36} color="var(--accent)" strokeWidth={1.5} />
-          </div>
-
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 18, fontWeight: 600, marginBottom: 6 }}>
-              Generating quantum keypairs
-            </div>
-            <div style={{ fontSize: 13, color: 'var(--fg-muted)' }}>
-              Setting up your post-quantum secure identity
-            </div>
-          </div>
-
-          <div style={{
-            width: '100%', display: 'flex', flexDirection: 'column', gap: 12,
-            padding: 20, borderRadius: 'var(--radius-l)',
-            background: 'var(--bg-secondary)', border: '1px solid var(--border)',
-          }}>
-            {KEYGEN_STEPS.map((step, i) => {
-              const done = i < keygenStep;
-              const active = i === keygenStep;
-              return (
-                <div
-                  key={i}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 12, fontSize: 13,
-                    color: done ? 'var(--green)' : active ? 'var(--fg)' : 'var(--fg-faint)',
-                    transition: 'color 0.3s',
-                    animation: `fadeInUp 0.4s ease-out ${i * 0.15}s backwards`,
-                  }}
-                >
-                  <div style={{
-                    width: 24, height: 24, borderRadius: '50%', flex: 'none',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    background: done ? 'var(--green-bg)' : active ? 'var(--accent-bg)' : 'transparent',
-                    border: `1px solid ${done ? 'var(--green-border)' : active ? 'var(--accent-border)' : 'var(--border)'}`,
-                    transition: 'all 0.3s',
-                  }}>
-                    {done ? (
-                      <Check size={12} color="var(--green)" strokeWidth={3} style={{ animation: 'checkPop 0.3s ease-out' }} />
-                    ) : active ? (
-                      <Loader2 size={12} color="var(--accent)" className="spin" />
-                    ) : (
-                      <span style={{ fontSize: 10, color: 'var(--fg-faint)' }}>{i + 1}</span>
-                    )}
-                  </div>
-                  <span style={{ fontFamily: active || done ? 'var(--font-mono)' : undefined, fontSize: 12 }}>
-                    {step}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-
-          <div style={{
-            width: '100%', height: 3, borderRadius: 2,
-            background: 'var(--border)', overflow: 'hidden',
-          }}>
-            <div style={{
-              height: '100%', borderRadius: 2,
-              background: 'var(--accent)',
-              width: `${((keygenStep + 1) / KEYGEN_STEPS.length) * 100}%`,
-              transition: 'width 0.6s ease-out',
-            }} />
-          </div>
+        <Mail size={48} color="var(--accent)" strokeWidth={1.4} className="envelope-pulse" />
+        <div style={{ fontSize: 15, color: 'var(--fg-secondary)', marginTop: 24 }}>
+          Establishing a QKD secured connection
         </div>
+        <Loader2 size={18} color="var(--fg-muted)" className="spin" style={{ marginTop: 16 }} />
       </div>
     );
   }
