@@ -1,5 +1,4 @@
 const BASE = '/api';
-const AUTH_SERVICE = import.meta.env.VITE_AUTH_URL || 'https://auth.joshiakshit.live';
 
 function authHeaders(): Record<string, string> {
   const token = localStorage.getItem('qumail_token');
@@ -38,20 +37,17 @@ export interface KeysInfo {
   km_status: string;
 }
 
-export function getAuthLoginUrl() {
-  const redirectUri = `${window.location.origin}/callback`;
-  return `${AUTH_SERVICE}/login?client_id=qmail&redirect_uri=${encodeURIComponent(redirectUri)}`;
-}
-
-export function getAuthRegisterUrl() {
-  const redirectUri = `${window.location.origin}/callback`;
-  return `${AUTH_SERVICE}/register?client_id=qmail&redirect_uri=${encodeURIComponent(redirectUri)}`;
-}
-
-export function exchangeToken(authToken: string) {
-  return request<AuthResponse>('/auth/exchange', {
+export function login(email: string, password: string) {
+  return request<AuthResponse>('/auth/login', {
     method: 'POST',
-    body: JSON.stringify({ auth_token: authToken }),
+    body: JSON.stringify({ email, password }),
+  });
+}
+
+export function register(email: string, password: string) {
+  return request<AuthResponse>('/auth/register', {
+    method: 'POST',
+    body: JSON.stringify({ email, password }),
   });
 }
 

@@ -40,8 +40,9 @@ email_to_client: dict = {}
 user_credentials: dict = {}
 
 
-class ExchangeReq(BaseModel):
-    auth_token: str
+class AuthReq(BaseModel):
+    email: str
+    password: str
 
 
 class SendReq(BaseModel):
@@ -65,12 +66,11 @@ def _fingerprint(key_bytes: bytes) -> str:
     return ":".join(h[i:i+2] for i in range(0, 16, 2))
 
 
-@app.post("/api/auth/exchange")
-async def exchange_token(req: ExchangeReq):
+def _create_session(auth_token: str):
     try:
         resp = http_requests.get(
             f"{AUTH_SERVICE_URL}/api/v1/users/me",
-            headers={"Authorization": f"Bearer {req.auth_token}"},
+            headers={"Authorization": f"Bearer {auth_token}"},
             timeout=10,
         )
         if resp.status_code != 200:
@@ -139,6 +139,52 @@ async def exchange_token(req: ExchangeReq):
         "kem_fingerprint": _fingerprint(cred["kem_pk"]),
         "signing_fingerprint": _fingerprint(cred["sign_pk"]),
     }
+
+
+@app.post("/api/auth/login")
+async def auth_login(req: AuthReq):
+    try:
+        resp = http_requests.post(
+            f"{AUTH_SERVICE_URL}/api/v1/auth/login",
+            json={"email": req.email, "password": req.password},
+            timeout=10,
+        )
+    except http_requests.RequestException:
+        raise HTTPException(502, "Auth service unreachable")
+
+    if resp.status_code != 200:
+        detail = resp.json().get("detail", "Invalid email or password")
+        raise HTTPException(resp.status_code, detail)
+
+    auth_token = resp.json().get("access_token")
+    return _create_session(auth_token)
+
+
+@app.post("/api/auth/register")
+async def auth_register(req: AuthReq):
+    try:
+        resp = http_requests.post(
+            f"{AUTH_SERVICE_URL}/api/v1/auth/register",
+            json={"email": req.email, "password": req.password},
+            timeout=10,
+        )
+    except http_requests.RequestException:
+        raise HTTPException(502, "Auth service unreachable")
+
+    if resp.status_code not in (200, 201):
+        detail = resp.json().get("detail", "Registration failed")
+        raise HTTPException(resp.status_code, detail)
+
+    login_resp = http_requests.post(
+        f"{AUTH_SERVICE_URL}/api/v1/auth/login",
+        json={"email": req.email, "password": req.password},
+        timeout=10,
+    )
+    if login_resp.status_code != 200:
+        raise HTTPException(500, "Account created but auto-login failed")
+
+    auth_token = login_resp.json().get("access_token")
+    return _create_session(auth_token)
 
 
 @app.get("/api/auth/status")
