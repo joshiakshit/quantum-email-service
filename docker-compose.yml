@@ -1,5 +1,6 @@
 services:
   qmail:
+    image: ghcr.io/joshiakshit/qmail:latest
     build: .
     container_name: qmail
     restart: unless-stopped
