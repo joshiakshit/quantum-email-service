@@ -53,3 +53,5 @@ Thumbs.db
 
 # Claude
 .claude/
+CLAUDE.md
+qmail-hardening-plan.html

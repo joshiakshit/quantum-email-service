@@ -26,6 +26,12 @@ export interface AuthState {
   signing_fingerprint: string;
 }
 
+export interface ComposeDraft {
+  to: string;
+  subject: string;
+  body: string;
+}
+
 export interface FolderDef {
   id: string;
   label: string;

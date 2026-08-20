@@ -1,202 +1,178 @@
+import { useState } from 'react';
 import {
-  Inbox, Send, FileEdit, Star, Archive, Trash2,
-  Key, Settings, ShieldCheck, LogOut, Sun, Moon, Pencil,
+  Inbox, Send, FileEdit, Star, Archive, Trash2, Pencil,
+  ChevronDown, ChevronRight, ChevronsLeft, ChevronsRight, RefreshCw, Tag,
 } from 'lucide-react';
-import { FOLDER_IDS, FOLDER_LABELS, LABELS } from '@/data';
-import { getInitials } from '@/data';
-import type { Email, AuthState } from '@/types';
+import { PRIMARY_FOLDERS, MORE_FOLDERS, FOLDER_LABELS, LABELS } from '@/data';
+import type { AuthState } from '@/types';
 
 const FOLDER_ICONS: Record<string, React.ReactNode> = {
-  inbox: <Inbox size={18} />,
-  sent: <Send size={18} />,
-  drafts: <FileEdit size={18} />,
-  starred: <Star size={18} />,
-  archive: <Archive size={18} />,
-  trash: <Trash2 size={18} />,
+  inbox: <Inbox size={18} strokeWidth={1.8} />,
+  sent: <Send size={18} strokeWidth={1.8} />,
+  drafts: <FileEdit size={18} strokeWidth={1.8} />,
+  starred: <Star size={18} strokeWidth={1.8} />,
+  archive: <Archive size={18} strokeWidth={1.8} />,
+  trash: <Trash2 size={18} strokeWidth={1.8} />,
 };
 
 interface Props {
+  collapsed: boolean;
+  width: number;
   activeFolder: string;
+  activeLabel: string | null;
   settingsOpen: boolean;
-  emails: Email[];
+  unreadCounts: Record<string, number>;
+  refreshing: boolean;
   auth: AuthState;
-  theme: 'dark' | 'light';
-  onToggleTheme: () => void;
+  onToggleCollapsed: () => void;
   onSelectFolder: (id: string) => void;
+  onSelectLabel: (name: string | null) => void;
   onOpenCompose: () => void;
-  onOpenKeyPanel: () => void;
-  onOpenSettings: () => void;
-  onLogout: () => void;
+  onRefresh: () => void;
 }
 
 export default function Sidebar({
-  activeFolder, settingsOpen, emails, auth, theme,
-  onToggleTheme, onSelectFolder, onOpenCompose, onOpenKeyPanel, onOpenSettings, onLogout,
+  collapsed, width, activeFolder, activeLabel, settingsOpen, unreadCounts, refreshing, auth,
+  onToggleCollapsed, onSelectFolder, onSelectLabel, onOpenCompose, onRefresh,
 }: Props) {
-  const unreadInbox = emails.filter(e => e.folder === 'inbox' && e.unread).length;
-  const initials = getInitials(auth.name);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [labelsOpen, setLabelsOpen] = useState(true);
+
+  function folderRow(fid: string) {
+    const active = fid === activeFolder && !settingsOpen && !activeLabel;
+    const count = unreadCounts[fid] ?? 0;
+    return (
+      <button
+        key={fid}
+        className={`nav-row ${active ? 'active' : ''}`}
+        onClick={() => onSelectFolder(fid)}
+        title={collapsed ? FOLDER_LABELS[fid] : undefined}
+        style={collapsed ? { justifyContent: 'center', padding: 8 } : undefined}
+      >
+        <span className="nav-icon">{FOLDER_ICONS[fid]}</span>
+        {!collapsed && (
+          <>
+            <span style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {FOLDER_LABELS[fid]}
+            </span>
+            {active && fid === 'inbox' && (
+              <span
+                className="icon-btn"
+                onClick={e => { e.stopPropagation(); onRefresh(); }}
+                title="Refresh"
+              >
+                <RefreshCw size={14} strokeWidth={2} className={refreshing ? 'spin' : undefined} />
+              </span>
+            )}
+            {count > 0 && <span className="badge">{count}</span>}
+          </>
+        )}
+      </button>
+    );
+  }
 
   return (
-    <div style={{
-      width: 240, flex: 'none', display: 'flex', flexDirection: 'column',
-      borderRight: '1px solid var(--border)',
+    <nav style={{
+      width, flex: 'none', display: 'flex', flexDirection: 'column',
+      padding: '0 8px 8px', transition: 'width 0.16s ease', overflow: 'hidden',
     }}>
-      {/* Brand */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '16px 18px 12px' }}>
-        <div style={{
-          width: 32, height: 32, borderRadius: 'var(--radius-m)',
-          background: 'var(--accent)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }}>
-          <ShieldCheck size={18} color="#fff" strokeWidth={1.8} />
-        </div>
-        <div>
-          <div style={{ fontWeight: 600, fontSize: 16, letterSpacing: '-0.02em', lineHeight: 1 }}>
-            QMail
-          </div>
-          <div style={{ fontSize: 10, color: 'var(--accent)', letterSpacing: '0.06em', marginTop: 2, fontWeight: 500 }}>
-            QUANTUM SECURE
-          </div>
-        </div>
-      </div>
-
-      {/* Compose */}
-      <div style={{ padding: '4px 12px 14px' }}>
+      <div style={{ padding: '0 4px 12px' }}>
         <button
+          className="btn btn-primary"
           onClick={onOpenCompose}
+          title={collapsed ? 'New message' : undefined}
           style={{
-            display: 'flex', alignItems: 'center', gap: 10,
-            padding: '12px 20px', cursor: 'pointer',
-            background: 'var(--accent-bg)', color: 'var(--fg)',
-            border: '1px solid var(--accent-border)',
-            borderRadius: 'var(--radius-full)',
-            fontSize: 14, fontWeight: 500, fontFamily: 'inherit',
-            transition: 'box-shadow 0.2s, background 0.15s',
-            boxShadow: 'var(--shadow-sm)',
-          }}
-          onMouseEnter={e => {
-            e.currentTarget.style.boxShadow = 'var(--shadow-md)';
-            e.currentTarget.style.background = 'var(--accent-bg)';
-          }}
-          onMouseLeave={e => {
-            e.currentTarget.style.boxShadow = 'var(--shadow-sm)';
+            width: '100%', height: 44, gap: 8, fontSize: 14, fontWeight: 600,
+            borderRadius: 'var(--radius-m)', boxShadow: 'var(--shadow-sm)',
           }}
         >
-          <Pencil size={16} color="var(--accent)" />
-          Compose
+          <Pencil size={16} strokeWidth={2} />
+          {!collapsed && 'New message'}
         </button>
       </div>
 
-      {/* Folders */}
-      <div style={{ padding: '0 8px', display: 'flex', flexDirection: 'column', gap: 1 }}>
-        {FOLDER_IDS.map(fid => {
-          const active = fid === activeFolder && !settingsOpen;
-          const count = fid === 'inbox' ? unreadInbox : 0;
-          return (
-            <div
-              key={fid}
-              className={`sidebar-row ${active ? 'active' : ''}`}
-              onClick={() => onSelectFolder(fid)}
-              style={{ padding: '7px 12px', borderRadius: 'var(--radius-full)' }}
-            >
-              <span style={{
-                display: 'flex', alignItems: 'center',
-                color: active ? 'var(--accent)' : 'var(--fg-muted)',
-              }}>
-                {FOLDER_ICONS[fid]}
-              </span>
-              <span style={{ flex: 1, fontSize: 13, fontWeight: active ? 600 : 400 }}>{FOLDER_LABELS[fid]}</span>
-              {count > 0 && (
-                <span style={{
-                  fontSize: 11, fontWeight: 600, color: 'var(--fg-secondary)',
-                }}>
-                  {count}
-                </span>
-              )}
-            </div>
-          );
-        })}
-      </div>
+      <div className="scrollbar-thin" style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>
+        {PRIMARY_FOLDERS.map(folderRow)}
 
-      {/* Labels */}
-      <div style={{ padding: '16px 18px 6px' }}>
-        <div style={{
-          fontSize: 11, letterSpacing: '0.04em',
-          color: 'var(--fg-muted)', marginBottom: 8, fontWeight: 500,
-        }}>
-          Labels
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-          {LABELS.map(l => (
-            <div key={l.name} style={{
-              display: 'flex', alignItems: 'center', gap: 10,
-              padding: '5px 12px', fontSize: 13, color: 'var(--fg-secondary)',
-              cursor: 'pointer', borderRadius: 'var(--radius-full)',
-            }}>
-              <span style={{ width: 10, height: 10, borderRadius: '50%', background: l.color, flex: 'none' }} />
-              {l.name}
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div style={{ flex: 1 }} />
-
-      {/* Bottom actions */}
-      <div style={{ padding: '4px 8px', display: 'flex', flexDirection: 'column', gap: 1 }}>
-        <div className="sidebar-row" onClick={onOpenKeyPanel} style={{ fontSize: 13, borderRadius: 'var(--radius-full)' }}>
-          <Key size={18} strokeWidth={1.7} />
-          Key management
-        </div>
-        <div className="sidebar-row" onClick={onOpenSettings} style={{ fontSize: 13, borderRadius: 'var(--radius-full)' }}>
-          <Settings size={18} strokeWidth={1.7} />
-          Settings
-        </div>
-        <div className="sidebar-row" onClick={onToggleTheme} style={{ fontSize: 13, borderRadius: 'var(--radius-full)' }}>
-          {theme === 'dark' ? <Sun size={18} strokeWidth={1.7} /> : <Moon size={18} strokeWidth={1.7} />}
-          {theme === 'dark' ? 'Light mode' : 'Dark mode'}
-        </div>
-      </div>
-
-      {/* Account */}
-      <div style={{
-        padding: '10px 12px', borderTop: '1px solid var(--border)',
-        display: 'flex', alignItems: 'center', gap: 10,
-      }}>
-        <div style={{
-          width: 30, height: 30, borderRadius: '50%',
-          background: 'var(--accent-bg)',
-          border: '1px solid var(--accent-border)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 11, fontWeight: 600, color: 'var(--accent)', flex: 'none',
-        }}>
-          {initials}
-        </div>
-        <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={{
-            fontSize: 12, fontWeight: 500, color: 'var(--fg)',
-            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-          }}>
-            {auth.name}
-          </div>
-          <div style={{
-            fontSize: 10, color: 'var(--fg-muted)',
-            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-          }}>
-            {auth.email}
-          </div>
-        </div>
-        <div
-          onClick={onLogout}
-          title="Sign out"
-          style={{
-            cursor: 'pointer', color: 'var(--fg-muted)', display: 'flex',
-            padding: 4, borderRadius: 4, flex: 'none',
-          }}
+        <button
+          className="nav-row"
+          onClick={() => setMoreOpen(o => !o)}
+          title={collapsed ? 'More folders' : undefined}
+          style={collapsed ? { justifyContent: 'center', padding: 8 } : undefined}
         >
-          <LogOut size={14} strokeWidth={1.7} />
-        </div>
+          <span className="nav-icon">
+            {moreOpen ? <ChevronDown size={18} strokeWidth={1.8} /> : <ChevronRight size={18} strokeWidth={1.8} />}
+          </span>
+          {!collapsed && <span>More</span>}
+        </button>
+        {moreOpen && MORE_FOLDERS.map(folderRow)}
+
+        {!collapsed && (
+          <>
+            <div style={{ height: 12 }} />
+            <button className="nav-section" onClick={() => setLabelsOpen(o => !o)}>
+              {labelsOpen ? <ChevronDown size={14} strokeWidth={2} /> : <ChevronRight size={14} strokeWidth={2} />}
+              Labels
+            </button>
+            {labelsOpen && LABELS.map(l => {
+              const active = activeLabel === l.name;
+              return (
+                <button
+                  key={l.name}
+                  className={`nav-row ${active ? 'active' : ''}`}
+                  onClick={() => onSelectLabel(active ? null : l.name)}
+                  style={{ fontSize: 13, fontWeight: 500 }}
+                >
+                  <span className="nav-icon" style={{ color: l.color }}>
+                    <Tag size={16} strokeWidth={1.8} />
+                  </span>
+                  <span style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {l.name}
+                  </span>
+                </button>
+              );
+            })}
+          </>
+        )}
       </div>
-    </div>
+
+      {!collapsed && (
+        <div style={{
+          margin: '10px 4px 8px', padding: '12px 14px',
+          borderRadius: 'var(--radius-l)', background: 'var(--bg-tertiary)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+            <span style={{
+              width: 8, height: 8, borderRadius: '50%', background: 'var(--green)',
+              animation: 'pulseSoft 2.4s ease-in-out infinite',
+            }} />
+            <span style={{ fontSize: 12, fontWeight: 600 }}>Quantum channel active</span>
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--fg-secondary)', marginBottom: 4 }}>
+            ML-KEM-768 · ML-DSA-65
+          </div>
+          <div style={{
+            fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--fg-muted)',
+            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+          }}>
+            {auth.kem_fingerprint}
+          </div>
+        </div>
+      )}
+
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 8,
+        padding: '0 4px', justifyContent: collapsed ? 'center' : 'space-between',
+      }}>
+        {!collapsed && <span style={{ fontSize: 11, color: 'var(--fg-muted)' }}>QMail 1.0.0</span>}
+        <button
+          className="rail-btn"
+          onClick={onToggleCollapsed}
+          title={collapsed ? 'Expand navigation' : 'Collapse navigation'}
+        >
+          {collapsed ? <ChevronsRight size={16} strokeWidth={2} /> : <ChevronsLeft size={16} strokeWidth={2} />}
+        </button>
+      </div>
+    </nav>
   );
 }

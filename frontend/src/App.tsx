@@ -1,12 +1,19 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import TopBar from '@/components/TopBar';
 import Sidebar from '@/components/Sidebar';
-import InboxView from '@/components/InboxView';
+import RightRail from '@/components/RightRail';
+import MessageList from '@/components/MessageList';
+import MessageView from '@/components/MessageView';
 import SettingsPanel from '@/components/SettingsPanel';
 import ComposeModal from '@/components/ComposeModal';
 import KeyManagementModal from '@/components/KeyManagementModal';
 import AuthScreen from '@/components/AuthScreen';
+import { FOLDER_IDS, FOLDER_LABELS } from '@/data';
 import * as api from '@/api';
-import type { Email, AuthState } from './types';
+import type { Email, AuthState, ComposeDraft } from './types';
+
+const SIDEBAR_W = 272;
+const SIDEBAR_W_COLLAPSED = 68;
 
 function useTheme() {
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
@@ -23,18 +30,38 @@ function useTheme() {
   return { theme, toggle };
 }
 
+function quote(email: Email) {
+  return `\n\n---\nOn ${email.fullDate}, ${email.sender} <${email.senderEmail}> wrote:\n${email.body}`;
+}
+
 export default function App() {
   const { theme, toggle: toggleTheme } = useTheme();
   const [auth, setAuth] = useState<AuthState | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
   const [emails, setEmails] = useState<Email[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
+
   const [activeFolder, setActiveFolder] = useState('inbox');
-  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [activeLabel, setActiveLabel] = useState<string | null>(null);
+  const [category, setCategory] = useState('primary');
+  const [unreadOnly, setUnreadOnly] = useState(false);
   const [search, setSearch] = useState('');
-  const [composeOpen, setComposeOpen] = useState(false);
+  const [openId, setOpenId] = useState<number | null>(null);
+
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [starred, setStarred] = useState<Set<number>>(new Set());
+  const [readState, setReadState] = useState<Record<number, boolean>>({});
+
+  const [compose, setCompose] = useState<ComposeDraft | null>(null);
+  const [composeKey, setComposeKey] = useState(0);
   const [keyPanelOpen, setKeyPanelOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState('security');
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem('qmail_nav') === 'collapsed');
+
+  useEffect(() => {
+    localStorage.setItem('qmail_nav', collapsed ? 'collapsed' : 'expanded');
+  }, [collapsed]);
 
   useEffect(() => {
     const token = localStorage.getItem('qmail_token');
@@ -49,6 +76,7 @@ export default function App() {
   }, []);
 
   const fetchEmails = useCallback(async (folder: string) => {
+    setRefreshing(true);
     try {
       const data = await api.getEmails(folder);
       setEmails(prev => {
@@ -56,86 +84,238 @@ export default function App() {
         return [...other, ...data.emails];
       });
     } catch { /* gateway not running */ }
+    setRefreshing(false);
   }, []);
 
   useEffect(() => {
     if (auth) fetchEmails(activeFolder);
   }, [auth, activeFolder, fetchEmails]);
 
+  const isUnread = useCallback(
+    (email: Email) => readState[email.id] ?? email.unread,
+    [readState],
+  );
+
+  const query = search.trim().toLowerCase();
+
+  const listed = useMemo(() => {
+    const base = query
+      ? emails
+      : activeFolder === 'starred'
+        ? emails.filter(e => starred.has(e.id))
+        : emails.filter(e => e.folder === activeFolder);
+    return base
+      .filter(e => !activeLabel || e.label === activeLabel)
+      .filter(e => !query || (e.sender + e.subject + e.preview + e.body).toLowerCase().includes(query));
+  }, [emails, activeFolder, activeLabel, query, starred]);
+
+  const unreadCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const fid of FOLDER_IDS) {
+      counts[fid] = emails.filter(e => (fid === 'starred' ? starred.has(e.id) : e.folder === fid) && isUnread(e)).length;
+    }
+    return counts;
+  }, [emails, starred, isUnread]);
+
+  const openEmail = openId === null ? null : emails.find(e => e.id === openId) ?? null;
+  const openIndex = openEmail ? listed.findIndex(e => e.id === openEmail.id) : -1;
+
+  function markRead(ids: number[], read: boolean) {
+    setReadState(prev => {
+      const next = { ...prev };
+      for (const id of ids) next[id] = !read;
+      return next;
+    });
+    if (read) setSelected(new Set());
+  }
+
+  function toggleStar(id: number) {
+    setStarred(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelect(id: number) {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function selectMany(ids: number[], on: boolean) {
+    setSelected(prev => {
+      const next = new Set(prev);
+      for (const id of ids) { if (on) next.add(id); else next.delete(id); }
+      return next;
+    });
+  }
+
+  function openMessage(id: number) {
+    setOpenId(id);
+    markRead([id], true);
+  }
+
   function selectFolder(id: string) {
     setActiveFolder(id);
-    setSelectedId(null);
+    setActiveLabel(null);
+    setOpenId(null);
+    setSelected(new Set());
     setSettingsOpen(false);
+    setSearch('');
+  }
+
+  function selectLabel(name: string | null) {
+    setActiveLabel(name);
+    setOpenId(null);
+    setSettingsOpen(false);
+  }
+
+  function startCompose(draft: ComposeDraft) {
+    setCompose(draft);
+    setComposeKey(k => k + 1);
   }
 
   async function handleSend(to: string, subject: string, body: string) {
     await api.sendEmail(to, subject, body);
-    setComposeOpen(false);
+    setCompose(null);
     fetchEmails('sent');
   }
 
   async function handleLogout() {
-    try { await api.logout(); } catch {}
+    try { await api.logout(); } catch { /* session already gone */ }
     localStorage.removeItem('qmail_token');
     setAuth(null);
     setEmails([]);
-    setSelectedId(null);
+    setOpenId(null);
     setSettingsOpen(false);
   }
 
   if (!authChecked) {
-    return (
-      <div style={{
-        width: '100vw', height: '100vh', display: 'flex',
-        alignItems: 'center', justifyContent: 'center',
-        background: 'var(--bg)',
-      }} />
-    );
+    return <div style={{ width: '100vw', height: '100vh', background: 'var(--bg)' }} />;
   }
 
   if (!auth) return <AuthScreen onAuth={setAuth} />;
 
+  const navWidth = collapsed ? SIDEBAR_W_COLLAPSED : SIDEBAR_W;
+  const listTitle = query
+    ? `Search: ${search.trim()}`
+    : activeLabel ?? FOLDER_LABELS[activeFolder] ?? activeFolder;
+
   return (
     <div style={{
-      width: '100vw', height: '100vh', display: 'flex',
+      width: '100vw', height: '100vh', display: 'flex', flexDirection: 'column',
       background: 'var(--bg)', color: 'var(--fg)',
       fontFamily: 'var(--font-sans)', overflow: 'hidden',
     }}>
-      <Sidebar
-        activeFolder={activeFolder}
-        settingsOpen={settingsOpen}
-        emails={emails}
+      <TopBar
         auth={auth}
+        search={search}
+        brandWidth={navWidth}
         theme={theme}
+        onSearchChange={setSearch}
         onToggleTheme={toggleTheme}
-        onSelectFolder={selectFolder}
-        onOpenCompose={() => setComposeOpen(true)}
-        onOpenKeyPanel={() => setKeyPanelOpen(true)}
         onOpenSettings={() => { setSettingsOpen(true); setSettingsTab('security'); }}
+        onOpenKeyPanel={() => setKeyPanelOpen(true)}
         onLogout={handleLogout}
       />
 
-      {settingsOpen ? (
-        <SettingsPanel
-          auth={auth}
-          activeTab={settingsTab}
-          onTabChange={setSettingsTab}
-          onClose={() => setSettingsOpen(false)}
-        />
-      ) : (
-        <InboxView
+      <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
+        <Sidebar
+          collapsed={collapsed}
+          width={navWidth}
           activeFolder={activeFolder}
-          selectedId={selectedId}
-          search={search}
-          emails={emails}
-          onSelectEmail={setSelectedId}
-          onSearchChange={setSearch}
+          activeLabel={activeLabel}
+          settingsOpen={settingsOpen}
+          unreadCounts={unreadCounts}
+          refreshing={refreshing}
+          auth={auth}
+          onToggleCollapsed={() => setCollapsed(c => !c)}
+          onSelectFolder={selectFolder}
+          onSelectLabel={selectLabel}
+          onOpenCompose={() => startCompose({ to: '', subject: '', body: '' })}
           onRefresh={() => fetchEmails(activeFolder)}
         />
-      )}
 
-      {composeOpen && (
-        <ComposeModal onClose={() => setComposeOpen(false)} onSend={handleSend} />
+        <main style={{
+          flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden',
+          background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+          borderRadius: 'var(--radius-l)', marginBottom: 8,
+        }}>
+          {settingsOpen ? (
+            <SettingsPanel
+              auth={auth}
+              activeTab={settingsTab}
+              onTabChange={setSettingsTab}
+              onClose={() => setSettingsOpen(false)}
+            />
+          ) : openEmail ? (
+            <MessageView
+              email={openEmail}
+              starred={starred.has(openEmail.id)}
+              hasPrev={openIndex > 0}
+              hasNext={openIndex >= 0 && openIndex < listed.length - 1}
+              onBack={() => setOpenId(null)}
+              onToggleStar={() => toggleStar(openEmail.id)}
+              onMarkUnread={() => { markRead([openEmail.id], false); setOpenId(null); }}
+              onPrev={() => openMessage(listed[openIndex - 1].id)}
+              onNext={() => openMessage(listed[openIndex + 1].id)}
+              onReply={() => startCompose({
+                to: openEmail.senderEmail,
+                subject: `Re: ${openEmail.subject}`,
+                body: quote(openEmail),
+              })}
+              onReplyAll={() => startCompose({
+                to: openEmail.senderEmail,
+                subject: `Re: ${openEmail.subject}`,
+                body: quote(openEmail),
+              })}
+              onForward={() => startCompose({
+                to: '',
+                subject: `Fw: ${openEmail.subject}`,
+                body: quote(openEmail),
+              })}
+            />
+          ) : (
+            <MessageList
+              folderLabel={listTitle}
+              emails={listed}
+              category={category}
+              unreadOnly={unreadOnly}
+              selected={selected}
+              starred={starred}
+              refreshing={refreshing}
+              isUnread={isUnread}
+              onCategoryChange={setCategory}
+              onToggleUnreadOnly={() => setUnreadOnly(v => !v)}
+              onToggleSelect={toggleSelect}
+              onSelectMany={selectMany}
+              onToggleStar={toggleStar}
+              onOpen={openMessage}
+              onMarkRead={markRead}
+              onRefresh={() => fetchEmails(activeFolder)}
+            />
+          )}
+        </main>
+
+        <RightRail
+          theme={theme}
+          onOpenKeyPanel={() => setKeyPanelOpen(true)}
+          onOpenSecurity={() => { setSettingsOpen(true); setSettingsTab('security'); }}
+          onToggleTheme={toggleTheme}
+        />
+      </div>
+
+      {compose && (
+        <ComposeModal
+          key={composeKey}
+          fromEmail={auth.email}
+          initial={compose}
+          onClose={() => setCompose(null)}
+          onSend={handleSend}
+        />
       )}
 
       {keyPanelOpen && (
