@@ -40,9 +40,25 @@ email_to_client: dict = {}
 user_credentials: dict = {}
 
 
-class AuthReq(BaseModel):
-    email: str
+EMAIL_DOMAIN = "qmail.secure"
+
+
+class LoginReq(BaseModel):
+    username: str
     password: str
+
+
+class RegisterReq(BaseModel):
+    first_name: str
+    last_name: str
+    username: str
+    password: str
+
+
+def _to_email(username: str) -> str:
+    if "@" in username:
+        return username
+    return f"{username}@{EMAIL_DOMAIN}"
 
 
 class SendReq(BaseModel):
@@ -142,18 +158,19 @@ def _create_session(auth_token: str):
 
 
 @app.post("/api/auth/login")
-async def auth_login(req: AuthReq):
+async def auth_login(req: LoginReq):
+    email = _to_email(req.username)
     try:
         resp = http_requests.post(
             f"{AUTH_SERVICE_URL}/api/v1/auth/login",
-            json={"email": req.email, "password": req.password},
+            json={"email": email, "password": req.password},
             timeout=10,
         )
     except http_requests.RequestException:
         raise HTTPException(502, "Auth service unreachable")
 
     if resp.status_code != 200:
-        detail = resp.json().get("detail", "Invalid email or password")
+        detail = resp.json().get("detail", "Invalid username or password")
         raise HTTPException(resp.status_code, detail)
 
     auth_token = resp.json().get("access_token")
@@ -161,11 +178,13 @@ async def auth_login(req: AuthReq):
 
 
 @app.post("/api/auth/register")
-async def auth_register(req: AuthReq):
+async def auth_register(req: RegisterReq):
+    email = _to_email(req.username)
+    name = f"{req.first_name} {req.last_name}".strip()
     try:
         resp = http_requests.post(
             f"{AUTH_SERVICE_URL}/api/v1/auth/register",
-            json={"email": req.email, "password": req.password},
+            json={"email": email, "password": req.password, "name": name},
             timeout=10,
         )
     except http_requests.RequestException:
@@ -177,7 +196,7 @@ async def auth_register(req: AuthReq):
 
     login_resp = http_requests.post(
         f"{AUTH_SERVICE_URL}/api/v1/auth/login",
-        json={"email": req.email, "password": req.password},
+        json={"email": email, "password": req.password},
         timeout=10,
     )
     if login_resp.status_code != 200:
