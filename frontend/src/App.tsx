@@ -18,24 +18,8 @@ export default function App() {
   const [keyPanelOpen, setKeyPanelOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState('security');
-  const [exchanging, setExchanging] = useState(false);
 
   useEffect(() => {
-    const hash = window.location.hash;
-    if (hash.startsWith('#token=')) {
-      const authToken = hash.slice(7);
-      window.history.replaceState(null, '', '/');
-      setExchanging(true);
-      api.exchangeToken(authToken)
-        .then(data => {
-          localStorage.setItem('qumail_token', data.token);
-          setAuth(data);
-        })
-        .catch(() => {})
-        .finally(() => setExchanging(false));
-      return;
-    }
-
     const token = localStorage.getItem('qumail_token');
     if (token) {
       api.getAuthStatus()
@@ -79,7 +63,7 @@ export default function App() {
     setSettingsOpen(false);
   }
 
-  if (!auth) return <AuthScreen exchanging={exchanging} />;
+  if (!auth) return <AuthScreen onAuth={setAuth} />;
 
   return (
     <div

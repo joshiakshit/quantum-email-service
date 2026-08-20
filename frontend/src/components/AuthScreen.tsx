@@ -1,8 +1,10 @@
-import { ShieldCheck, Lock, Fingerprint, Zap, ArrowRight, Loader2, Mail } from 'lucide-react';
-import { getAuthLoginUrl, getAuthRegisterUrl } from '@/api';
+import { useState } from 'react';
+import { ShieldCheck, Lock, Fingerprint, Zap, Loader2, Mail, Eye, EyeOff } from 'lucide-react';
+import * as api from '@/api';
+import type { AuthState } from '@/types';
 
 interface Props {
-  exchanging: boolean;
+  onAuth: (auth: AuthState) => void;
 }
 
 const FEATURES = [
@@ -19,8 +21,52 @@ const STEPS = [
   'Secure session established',
 ];
 
-export default function AuthScreen({ exchanging }: Props) {
-  if (exchanging) {
+export default function AuthScreen({ onAuth }: Props) {
+  const [mode, setMode] = useState<'login' | 'register'>('login');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [keygen, setKeygen] = useState(false);
+  const [error, setError] = useState('');
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError('');
+
+    if (!email || !password) {
+      setError('Please fill in all fields');
+      return;
+    }
+
+    if (mode === 'register' && password !== confirm) {
+      setError('Passwords do not match');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      if (mode === 'register') {
+        setKeygen(true);
+        const data = await api.register(email, password);
+        localStorage.setItem('qumail_token', data.token);
+        onAuth(data);
+      } else {
+        setKeygen(true);
+        const data = await api.login(email, password);
+        localStorage.setItem('qumail_token', data.token);
+        onAuth(data);
+      }
+    } catch (err: unknown) {
+      setKeygen(false);
+      setError(err instanceof Error ? err.message : 'Something went wrong');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (keygen && loading) {
     return (
       <div style={{
         width: '100vw', height: '100vh',
@@ -46,6 +92,15 @@ export default function AuthScreen({ exchanging }: Props) {
       </div>
     );
   }
+
+  const inputStyle: React.CSSProperties = {
+    width: '100%', padding: '12px 14px', fontSize: 14,
+    fontFamily: 'inherit', borderRadius: 'var(--radius-sm)',
+    background: 'var(--color-surface)',
+    border: '1px solid var(--color-divider)',
+    color: 'var(--color-text)', outline: 'none',
+    transition: 'border-color 0.15s',
+  };
 
   return (
     <div style={{
@@ -121,7 +176,7 @@ export default function AuthScreen({ exchanging }: Props) {
         alignItems: 'center', justifyContent: 'center',
         padding: '60px 56px',
       }}>
-        <div style={{ width: '100%', maxWidth: 400 }}>
+        <div style={{ width: '100%', maxWidth: 380 }}>
           <div style={{ marginBottom: 8 }}>
             <Mail size={20} color="var(--color-accent)" strokeWidth={1.8} />
           </div>
@@ -129,47 +184,129 @@ export default function AuthScreen({ exchanging }: Props) {
             fontSize: 24, fontWeight: 600, margin: '0 0 8px',
             fontFamily: 'var(--font-heading)',
           }}>
-            Access your secure mailbox
+            {mode === 'login' ? 'Sign in to QMail' : 'Create your account'}
           </h2>
-          <p style={{ fontSize: 14, color: 'var(--color-neutral-500)', margin: '0 0 32px', lineHeight: 1.6 }}>
-            Sign in to your account or create a new identity.
-            Quantum keypairs are generated automatically on first login.
+          <p style={{ fontSize: 14, color: 'var(--color-neutral-500)', margin: '0 0 28px', lineHeight: 1.6 }}>
+            {mode === 'login'
+              ? 'Enter your credentials to access your secure mailbox.'
+              : 'Set up your account. Quantum keypairs are generated on first login.'}
           </p>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <a
-              href={getAuthLoginUrl()}
+          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {error && (
+              <div style={{
+                padding: '10px 14px', borderRadius: 'var(--radius-sm)',
+                background: 'rgba(217, 79, 79, 0.1)', color: '#e06060',
+                fontSize: 13, lineHeight: 1.4,
+              }}>
+                {error}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <label style={{ fontSize: 13, fontWeight: 500, color: 'var(--color-neutral-400)' }}>
+                Email address
+              </label>
+              <input
+                type="email"
+                value={email}
+                onChange={e => { setEmail(e.target.value); setError(''); }}
+                placeholder="you@example.com"
+                autoComplete="email"
+                style={inputStyle}
+                onFocus={e => { e.target.style.borderColor = 'var(--color-accent)'; }}
+                onBlur={e => { e.target.style.borderColor = 'var(--color-divider)'; }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <label style={{ fontSize: 13, fontWeight: 500, color: 'var(--color-neutral-400)' }}>
+                Password
+              </label>
+              <div style={{ position: 'relative' }}>
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={e => { setPassword(e.target.value); setError(''); }}
+                  placeholder={mode === 'register' ? 'Create a password' : 'Enter your password'}
+                  autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
+                  style={{ ...inputStyle, paddingRight: 42 }}
+                  onFocus={e => { e.target.style.borderColor = 'var(--color-accent)'; }}
+                  onBlur={e => { e.target.style.borderColor = 'var(--color-divider)'; }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(v => !v)}
+                  style={{
+                    position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
+                    background: 'none', border: 'none', cursor: 'pointer', padding: 4,
+                    color: 'var(--color-neutral-600)', display: 'flex',
+                  }}
+                >
+                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
+              {mode === 'register' && (
+                <div style={{ fontSize: 12, color: 'var(--color-neutral-600)' }}>
+                  At least 8 characters, one uppercase letter, one digit
+                </div>
+              )}
+            </div>
+
+            {mode === 'register' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <label style={{ fontSize: 13, fontWeight: 500, color: 'var(--color-neutral-400)' }}>
+                  Confirm password
+                </label>
+                <input
+                  type="password"
+                  value={confirm}
+                  onChange={e => { setConfirm(e.target.value); setError(''); }}
+                  placeholder="Confirm your password"
+                  autoComplete="new-password"
+                  style={inputStyle}
+                  onFocus={e => { e.target.style.borderColor = 'var(--color-accent)'; }}
+                  onBlur={e => { e.target.style.borderColor = 'var(--color-divider)'; }}
+                />
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={loading}
               style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
                 padding: '14px 24px', borderRadius: 'var(--radius-md)',
                 background: 'var(--color-accent)', color: '#fff',
-                fontSize: 15, fontWeight: 500, textDecoration: 'none',
+                fontSize: 15, fontWeight: 500, border: 'none', cursor: 'pointer',
                 fontFamily: 'var(--font-heading)',
+                opacity: loading ? 0.7 : 1,
                 transition: 'opacity 0.15s',
               }}
             >
-              Sign in
-              <ArrowRight size={16} strokeWidth={2} />
-            </a>
+              {loading ? 'Please wait...' : mode === 'login' ? 'Sign in' : 'Create account'}
+            </button>
+          </form>
 
-            <a
-              href={getAuthRegisterUrl()}
+          <p style={{
+            textAlign: 'center', fontSize: 14, marginTop: 20,
+            color: 'var(--color-neutral-500)',
+          }}>
+            {mode === 'login' ? "Don't have an account? " : 'Already have an account? '}
+            <button
+              type="button"
+              onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setError(''); setConfirm(''); }}
               style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
-                padding: '14px 24px', borderRadius: 'var(--radius-md)',
-                background: 'transparent', color: 'var(--color-accent)',
-                border: '1px solid var(--color-accent)',
-                fontSize: 15, fontWeight: 500, textDecoration: 'none',
-                fontFamily: 'var(--font-heading)',
-                transition: 'background 0.15s',
+                background: 'none', border: 'none', cursor: 'pointer',
+                color: 'var(--color-accent)', fontWeight: 500, fontSize: 14,
+                fontFamily: 'inherit',
               }}
             >
-              Create account
-            </a>
-          </div>
+              {mode === 'login' ? 'Create one' : 'Sign in'}
+            </button>
+          </p>
 
           <div style={{
-            marginTop: 32, padding: '16px 18px', borderRadius: 'var(--radius-md)',
+            marginTop: 24, padding: '16px 18px', borderRadius: 'var(--radius-md)',
             background: 'var(--color-surface)', border: '1px solid var(--color-divider)',
           }}>
             <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-neutral-300)', marginBottom: 10 }}>
