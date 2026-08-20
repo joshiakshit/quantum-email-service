@@ -5,6 +5,7 @@ import hashlib
 import logging
 from datetime import datetime, timezone
 
+import requests as http_requests
 from fastapi import FastAPI, HTTPException, Header, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -29,17 +30,18 @@ app.add_middleware(
 )
 
 KM_URL = os.environ.get("QUMAIL_KM_URL", "http://localhost:8000")
+AUTH_SERVICE_URL = os.environ.get("QUMAIL_AUTH_URL", "https://auth.joshiakshit.live")
 
 sessions: dict = {}
 demo_mailbox: dict = {}
 demo_sent: dict = {}
 registered_users: dict = {}
 email_to_client: dict = {}
+user_credentials: dict = {}
 
 
-class RegisterReq(BaseModel):
-    name: str
-    email: str
+class ExchangeReq(BaseModel):
+    auth_token: str
 
 
 class SendReq(BaseModel):
@@ -63,91 +65,79 @@ def _fingerprint(key_bytes: bytes) -> str:
     return ":".join(h[i:i+2] for i in range(0, 16, 2))
 
 
-def _seed_inbox(email: str, kem_pk: bytes):
-    sign_pk, sign_sk = generate_signing_keypair()
-
-    demos = [
-        ("Dr. Ananya Rao", "ananya.rao@isro.gov.in",
-         "Cryogenic Stage Test Report — Q3",
-         "Team,\n\nAttached is the final report following the hot test at Mahendragiri. "
-         "All parameters were nominal within the expected envelope; chamber pressure held "
-         "steady across the full 640s burn.\n\nPlease review section 4 before the design "
-         "review on Thursday. The thermal margins on the injector face are tighter than "
-         "modelled — see page 12 for the revised analysis.\n\n— Ananya"),
-        ("Mission Control — VSSC", "missioncontrol@vssc.isro.gov.in",
-         "Launch Window Confirmation: PSLV-C61",
-         "The revised launch window has been confirmed by range safety for 05:58 IST, "
-         "23 Aug 2026. All stage clearances are logged. Weather advisory attached "
-         "separately.\n\nFinal readiness review at 18:00 today. All division heads to "
-         "attend via secure channel."),
-        ("ISTRAC Network Ops", "netops@istrac.isro.gov.in",
-         "QKD backbone maintenance — 22 Aug",
-         "The quantum key distribution backbone between Bengaluru and Thiruvananthapuram "
-         "will undergo planned maintenance on 22 Aug, 02:00–06:00 IST.\n\nDuring this "
-         "window, emails will fall back to classical hybrid encryption (X25519 + "
-         "AES-256-GCM). Full PQC coverage resumes automatically once the QKD link is "
-         "restored."),
-        ("Key Manager Service", "noreply@keymanager.gov.in",
-         "Signing key rotation due in 5 days",
-         "This is an automated notice from the QuMail Key Manager.\n\nYour ML-DSA-65 "
-         "signing key will expire on schedule in 5 days (2026-08-24). Regenerate your "
-         "keys from Settings → Key Management to avoid interruption to signed mail "
-         "delivery.\n\nNo action is needed for your KEM key at this time."),
-    ]
-
-    demo_mailbox[email] = []
-    for name, sender_email, subject, body in demos:
-        env_json = seal_envelope(body.encode("utf-8"), kem_pk, sign_sk, sign_pk)
-        mime_msg = envelope_to_mime(
-            env_json, f"{name} <{sender_email}>", email, subject,
-        )
-        demo_mailbox[email].append(mime_msg.as_string())
-
-
-@app.post("/api/auth/register")
-async def register(req: RegisterReq):
-    kem_pk, kem_sk = generate_kem_keypair()
-    sign_pk, sign_sk = generate_signing_keypair()
-
-    from crypto.km_client import KeyManagerClient
-    km = KeyManagerClient(base_url=KM_URL, verify_ssl=False)
+@app.post("/api/auth/exchange")
+async def exchange_token(req: ExchangeReq):
     try:
-        result = km.register(req.name, kem_pk, sign_pk)
-        client_id = result["client_id"]
-        reg_secret = result["registration_secret"]
-        km.authenticate(client_id, reg_secret)
-    except Exception as e:
-        raise HTTPException(502, f"Key Manager error: {e}")
+        resp = http_requests.get(
+            f"{AUTH_SERVICE_URL}/api/v1/users/me",
+            headers={"Authorization": f"Bearer {req.auth_token}"},
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            raise HTTPException(401, "Invalid or expired auth token")
+        user_info = resp.json()
+    except http_requests.RequestException:
+        raise HTTPException(502, "Auth service unreachable")
+
+    email = user_info.get("email", "")
+    name = user_info.get("name") or user_info.get("username") or email.split("@")[0]
+
+    if email in user_credentials:
+        cred = user_credentials[email]
+    else:
+        kem_pk, kem_sk = generate_kem_keypair()
+        sign_pk, sign_sk = generate_signing_keypair()
+
+        from crypto.km_client import KeyManagerClient
+        km = KeyManagerClient(base_url=KM_URL, verify_ssl=False)
+        try:
+            result = km.register(name, kem_pk, sign_pk)
+            client_id = result["client_id"]
+            reg_secret = result["registration_secret"]
+            km.authenticate(client_id, reg_secret)
+        except Exception as e:
+            raise HTTPException(502, f"Key Manager error: {e}")
+
+        cred = {
+            "client_id": client_id,
+            "name": name,
+            "kem_pk": kem_pk,
+            "kem_sk": kem_sk,
+            "sign_pk": sign_pk,
+            "sign_sk": sign_sk,
+            "reg_secret": reg_secret,
+            "km": km,
+            "registered_at": datetime.now(timezone.utc).isoformat(),
+        }
+        user_credentials[email] = cred
+
+        registered_users[client_id] = {
+            "name": name, "email": email,
+            "kem_pk": kem_pk, "sign_pk": sign_pk,
+        }
+        email_to_client[email] = client_id
 
     token = secrets.token_hex(32)
     sessions[token] = {
-        "client_id": client_id,
-        "name": req.name,
-        "email": req.email,
-        "kem_pk": kem_pk,
-        "kem_sk": kem_sk,
-        "sign_pk": sign_pk,
-        "sign_sk": sign_sk,
-        "reg_secret": reg_secret,
-        "km": km,
-        "registered_at": datetime.now(timezone.utc).isoformat(),
+        "client_id": cred["client_id"],
+        "name": cred["name"],
+        "email": email,
+        "kem_pk": cred["kem_pk"],
+        "kem_sk": cred["kem_sk"],
+        "sign_pk": cred["sign_pk"],
+        "sign_sk": cred["sign_sk"],
+        "reg_secret": cred["reg_secret"],
+        "km": cred["km"],
+        "registered_at": cred["registered_at"],
     }
-
-    registered_users[client_id] = {
-        "name": req.name, "email": req.email,
-        "kem_pk": kem_pk, "sign_pk": sign_pk,
-    }
-    email_to_client[req.email] = client_id
-
-    _seed_inbox(req.email, kem_pk)
 
     return {
         "token": token,
-        "client_id": client_id,
-        "name": req.name,
-        "email": req.email,
-        "kem_fingerprint": _fingerprint(kem_pk),
-        "signing_fingerprint": _fingerprint(sign_pk),
+        "client_id": cred["client_id"],
+        "name": cred["name"],
+        "email": email,
+        "kem_fingerprint": _fingerprint(cred["kem_pk"]),
+        "signing_fingerprint": _fingerprint(cred["sign_pk"]),
     }
 
 
@@ -162,6 +152,14 @@ async def auth_status(authorization: str = Header(None)):
         "signing_fingerprint": _fingerprint(s["sign_pk"]),
         "registered_at": s["registered_at"],
     }
+
+
+@app.post("/api/auth/logout")
+async def logout(authorization: str = Header(None)):
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.removeprefix("Bearer ").strip()
+        sessions.pop(token, None)
+    return {"status": "ok"}
 
 
 @app.get("/api/emails")
@@ -301,4 +299,10 @@ async def keys_info(authorization: str = Header(None)):
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "service": "QuMail Gateway"}
+    return {"status": "ok", "service": "QMail Gateway"}
+
+
+frontend_dir = os.path.join(os.path.dirname(__file__), "..", "frontend-build")
+if os.path.isdir(frontend_dir):
+    from fastapi.staticfiles import StaticFiles
+    app.mount("/", StaticFiles(directory=frontend_dir, html=True), name="frontend")

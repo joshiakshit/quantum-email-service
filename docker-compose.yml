@@ -1,0 +1,13 @@
+services:
+  qmail:
+    build: .
+    container_name: qmail
+    restart: unless-stopped
+    environment:
+      - QUMAIL_KM_URL=http://localhost:8000
+      - QUMAIL_AUTH_URL=https://auth.joshiakshit.live
+
+networks:
+  default:
+    name: shared
+    external: true

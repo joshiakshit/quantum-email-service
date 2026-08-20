@@ -1,6 +1,6 @@
 import {
   Inbox, Send, FileEdit, Star, Archive, Trash2,
-  Key, Settings, ShieldCheck, Plus,
+  Key, Settings, ShieldCheck, Plus, LogOut,
 } from 'lucide-react';
 import { FOLDER_IDS, FOLDER_LABELS, LABELS } from '@/data';
 import { getInitials } from '@/data';
@@ -24,11 +24,12 @@ interface Props {
   onOpenCompose: () => void;
   onOpenKeyPanel: () => void;
   onOpenSettings: () => void;
+  onLogout: () => void;
 }
 
 export default function Sidebar({
   activeFolder, settingsOpen, emails, auth,
-  onSelectFolder, onOpenCompose, onOpenKeyPanel, onOpenSettings,
+  onSelectFolder, onOpenCompose, onOpenKeyPanel, onOpenSettings, onLogout,
 }: Props) {
   const unreadInbox = emails.filter(e => e.folder === 'inbox' && e.unread).length;
   const initials = getInitials(auth.name);
@@ -184,6 +185,13 @@ export default function Sidebar({
           <div style={{ fontSize: 10, color: 'var(--color-neutral-500)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
             {auth.email}
           </div>
+        </div>
+        <div
+          onClick={onLogout}
+          title="Sign out"
+          style={{ cursor: 'pointer', color: 'var(--color-neutral-600)', display: 'flex', padding: 4, borderRadius: 4, flex: 'none' }}
+        >
+          <LogOut size={14} strokeWidth={1.7} />
         </div>
       </div>
     </div>

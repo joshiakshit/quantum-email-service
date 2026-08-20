@@ -1,4 +1,4 @@
-import { Search, Lock, Unlock, Reply, Forward, Archive, Trash2, ShieldCheck } from 'lucide-react';
+import { Search, Lock, Unlock, Reply, Forward, Archive, Trash2, ShieldCheck, Inbox, Mail } from 'lucide-react';
 import { AVATARS, FOLDER_LABELS, getInitials } from '@/data';
 import type { Email } from '@/types';
 
@@ -59,8 +59,20 @@ export default function InboxView({ activeFolder, selectedId, search, emails, on
             {FOLDER_LABELS[activeFolder] ?? activeFolder}
           </div>
           {filtered.length === 0 && (
-            <div style={{ padding: '24px 16px', fontSize: 12, color: 'var(--color-neutral-600)', textAlign: 'center' }}>
-              No messages in this folder
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 20px' }}>
+              <div style={{
+                width: 52, height: 52, borderRadius: '50%',
+                background: 'color-mix(in srgb, var(--color-accent) 8%, transparent)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 14,
+              }}>
+                <Inbox size={22} color="var(--color-accent)" strokeWidth={1.5} />
+              </div>
+              <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--color-neutral-400)', marginBottom: 6 }}>
+                No messages
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--color-neutral-600)', textAlign: 'center', lineHeight: 1.5, maxWidth: 200 }}>
+                Send a quantum-encrypted email to get started
+              </div>
             </div>
           )}
           {filtered.map(email => {
@@ -119,7 +131,20 @@ export default function InboxView({ activeFolder, selectedId, search, emails, on
 
         {/* Reading pane */}
         <div className="scrollbar-thin" style={{ flex: 1, overflowY: 'auto', minWidth: 0, background: 'var(--color-bg)' }}>
-          {selected && <ReadingPane email={selected} />}
+          {selected ? (
+            <ReadingPane email={selected} />
+          ) : (
+            <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 40 }}>
+              <Mail size={32} color="var(--color-neutral-800)" strokeWidth={1.5} />
+              <div style={{ fontSize: 14, color: 'var(--color-neutral-600)', marginTop: 12 }}>
+                Select a message to read
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 16, fontSize: 11, color: 'var(--color-neutral-700)' }}>
+                <Lock size={11} color="#5fbf82" strokeWidth={2.4} />
+                <span style={{ color: 'var(--color-neutral-600)' }}>All messages are end-to-end encrypted</span>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

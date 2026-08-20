@@ -72,6 +72,12 @@ input, textarea, button { font-family: inherit; }
   50% { box-shadow: 0 0 12px rgba(95,191,130,0.6); }
 }
 
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.spin { animation: spin 1s linear infinite; }
+
 .input {
   width: 100%;
   min-height: 36px;
