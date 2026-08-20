@@ -1,5 +1,6 @@
 import { ArrowLeft, Shield, User, Info } from 'lucide-react';
-import { SETTINGS_TABS } from '@/data';
+import { SETTINGS_TABS, getInitials } from '@/data';
+import type { AuthState } from '@/types';
 
 const TAB_ICONS: Record<string, React.ReactNode> = {
   security: <Shield size={15} strokeWidth={1.7} />,
@@ -8,12 +9,13 @@ const TAB_ICONS: Record<string, React.ReactNode> = {
 };
 
 interface Props {
+  auth: AuthState;
   activeTab: string;
   onTabChange: (id: string) => void;
   onClose: () => void;
 }
 
-export default function SettingsPanel({ activeTab, onTabChange, onClose }: Props) {
+export default function SettingsPanel({ auth, activeTab, onTabChange, onClose }: Props) {
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'var(--color-surface)', minWidth: 0, overflow: 'hidden' }}>
       {/* Header */}
@@ -51,7 +53,7 @@ export default function SettingsPanel({ activeTab, onTabChange, onClose }: Props
         {/* Content area */}
         <div className="scrollbar-thin" style={{ flex: 1, overflowY: 'auto', padding: '28px 36px' }}>
           {activeTab === 'security' && <SecurityTab />}
-          {activeTab === 'account' && <AccountTab />}
+          {activeTab === 'account' && <AccountTab auth={auth} />}
           {activeTab === 'privacy' && <PrivacyTab />}
         </div>
       </div>
@@ -167,41 +169,35 @@ function SecurityTab() {
   );
 }
 
-function AccountTab() {
+function AccountTab({ auth }: { auth: AuthState }) {
+  const initials = getInitials(auth.name);
+
   return (
     <>
       <h4 style={{ fontSize: 18, margin: '0 0 4px', color: 'var(--color-text)', fontFamily: 'var(--font-heading)', fontWeight: 'var(--font-heading-weight)' as any }}>Account</h4>
-      <p style={{ fontSize: 13, color: 'var(--color-neutral-500)', margin: '0 0 24px' }}>Your identity and organizational profile.</p>
+      <p style={{ fontSize: 13, color: 'var(--color-neutral-500)', margin: '0 0 24px' }}>Your identity and key information.</p>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         <SettingCard>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 16 }}>
-            <div style={{ width: 48, height: 48, borderRadius: '50%', background: 'var(--color-accent-700)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, fontWeight: 600, color: 'var(--color-accent-200)', flex: 'none' }}>VK</div>
+            <div style={{ width: 48, height: 48, borderRadius: '50%', background: 'var(--color-accent-700)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, fontWeight: 600, color: 'var(--color-accent-200)', flex: 'none' }}>{initials}</div>
             <div>
-              <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--color-text)' }}>Vikram Krishnan</div>
-              <div style={{ fontSize: 12, color: 'var(--color-neutral-500)' }}>Senior Mission Architect · Propulsion Division</div>
+              <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--color-text)' }}>{auth.name}</div>
+              <div style={{ fontSize: 12, color: 'var(--color-neutral-500)' }}>{auth.email}</div>
             </div>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             {[
-              ['Email', 'v.krishnan@isro.gov.in'],
-              ['Organization', 'ISRO — Vikram Sarabhai Space Centre'],
-              ['Clearance level', 'Level 4 — Restricted'],
-              ['Client ID', 'QM-CLI-7A2F-91BE-004D', true],
+              ['Client ID', auth.client_id, true],
+              ['KEM fingerprint', auth.kem_fingerprint, true],
+              ['Signing fingerprint', auth.signing_fingerprint, true],
+              ['Key algorithm', 'ML-KEM-768 + ML-DSA-65', false],
             ].map(([label, value, mono]) => (
               <div key={label as string} style={{ padding: '10px 12px', borderRadius: 'var(--radius-sm)', background: 'var(--color-surface)' }}>
                 <div style={{ fontSize: 10, color: 'var(--color-neutral-500)', marginBottom: 2 }}>{label}</div>
-                <div style={{ fontSize: 12, color: 'var(--color-neutral-300)', fontFamily: mono ? 'ui-monospace, Menlo, monospace' : undefined }}>{value}</div>
+                <div style={{ fontSize: 12, color: 'var(--color-neutral-300)', fontFamily: mono ? 'ui-monospace, Menlo, monospace' : undefined, wordBreak: 'break-all' }}>{value}</div>
               </div>
             ))}
           </div>
-        </SettingCard>
-
-        <SettingCard>
-          <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--color-text)', marginBottom: 10 }}>Storage</div>
-          <div style={{ height: 6, borderRadius: 3, background: 'var(--color-neutral-800)', overflow: 'hidden', marginBottom: 8 }}>
-            <div style={{ width: '34%', height: '100%', borderRadius: 3, background: 'linear-gradient(90deg, var(--color-accent-700), var(--color-accent))' }} />
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--color-neutral-500)' }}>1.7 GB of 5 GB used</div>
         </SettingCard>
       </div>
     </>

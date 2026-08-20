@@ -18,8 +18,24 @@ export default function App() {
   const [keyPanelOpen, setKeyPanelOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState('security');
+  const [exchanging, setExchanging] = useState(false);
 
   useEffect(() => {
+    const hash = window.location.hash;
+    if (hash.startsWith('#token=')) {
+      const authToken = hash.slice(7);
+      window.history.replaceState(null, '', '/');
+      setExchanging(true);
+      api.exchangeToken(authToken)
+        .then(data => {
+          localStorage.setItem('qumail_token', data.token);
+          setAuth(data);
+        })
+        .catch(() => {})
+        .finally(() => setExchanging(false));
+      return;
+    }
+
     const token = localStorage.getItem('qumail_token');
     if (token) {
       api.getAuthStatus()
@@ -54,11 +70,16 @@ export default function App() {
     fetchEmails('sent');
   }
 
-  function handleAuth(data: api.AuthResponse) {
-    setAuth(data);
+  async function handleLogout() {
+    try { await api.logout(); } catch {}
+    localStorage.removeItem('qumail_token');
+    setAuth(null);
+    setEmails([]);
+    setSelectedId(null);
+    setSettingsOpen(false);
   }
 
-  if (!auth) return <AuthScreen onAuth={handleAuth} />;
+  if (!auth) return <AuthScreen exchanging={exchanging} />;
 
   return (
     <div
@@ -81,10 +102,12 @@ export default function App() {
         onOpenCompose={() => setComposeOpen(true)}
         onOpenKeyPanel={() => setKeyPanelOpen(true)}
         onOpenSettings={() => { setSettingsOpen(true); setSettingsTab('security'); }}
+        onLogout={handleLogout}
       />
 
       {settingsOpen ? (
         <SettingsPanel
+          auth={auth}
           activeTab={settingsTab}
           onTabChange={setSettingsTab}
           onClose={() => setSettingsOpen(false)}
