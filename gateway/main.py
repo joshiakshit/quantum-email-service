@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 
 import requests as http_requests
 from fastapi import FastAPI, HTTPException, Header, Query
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -28,6 +30,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request, exc):
+    messages = []
+    for error in exc.errors():
+        field = " -> ".join(str(loc) for loc in error["loc"] if loc != "body")
+        messages.append(f"{field}: {error['msg']}" if field else error["msg"])
+    return JSONResponse(status_code=422, content={"detail": "; ".join(messages)})
+
 
 KM_URL = os.environ.get("QMAIL_KM_URL", "http://localhost:8000")
 AUTH_SERVICE_URL = os.environ.get("QMAIL_AUTH_URL", "https://auth.joshiakshit.live")
@@ -171,6 +182,8 @@ async def auth_login(req: LoginReq):
 
     if resp.status_code != 200:
         detail = resp.json().get("detail", "Invalid username or password")
+        if not isinstance(detail, str):
+            detail = "; ".join(str(e.get("msg", e)) if isinstance(e, dict) else str(e) for e in detail) if isinstance(detail, list) else str(detail)
         raise HTTPException(resp.status_code, detail)
 
     auth_token = resp.json().get("access_token")
@@ -192,6 +205,8 @@ async def auth_register(req: RegisterReq):
 
     if resp.status_code not in (200, 201):
         detail = resp.json().get("detail", "Registration failed")
+        if not isinstance(detail, str):
+            detail = "; ".join(str(e.get("msg", e)) if isinstance(e, dict) else str(e) for e in detail) if isinstance(detail, list) else str(detail)
         raise HTTPException(resp.status_code, detail)
 
     login_resp = http_requests.post(
