@@ -43,6 +43,7 @@ jobs:
           key: ${{ secrets.VM_SSH_KEY }}
           source: "docker-compose.yml"
           target: /opt/qmail/
+          overwrite: true
 
       - name: Deploy to VM
         uses: appleboy/ssh-action@v1
