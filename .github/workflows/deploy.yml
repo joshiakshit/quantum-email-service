@@ -33,6 +33,17 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - uses: actions/checkout@v4
+
+      - name: Copy config to VM
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USER }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          source: "docker-compose.yml"
+          target: /opt/qmail/
+
       - name: Deploy to VM
         uses: appleboy/ssh-action@v1
         with:
@@ -42,4 +53,4 @@ jobs:
           script: |
             cd /opt/qmail
             docker compose pull qmail
-            docker compose up -d
+            docker compose up -d --force-recreate
