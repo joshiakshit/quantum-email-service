@@ -40,12 +40,12 @@ export interface KeysInfo {
 
 export function getAuthLoginUrl() {
   const redirectUri = `${window.location.origin}/callback`;
-  return `${AUTH_SERVICE}/login?client_id=qumail&redirect_uri=${encodeURIComponent(redirectUri)}`;
+  return `${AUTH_SERVICE}/login?client_id=qmail&redirect_uri=${encodeURIComponent(redirectUri)}`;
 }
 
 export function getAuthRegisterUrl() {
   const redirectUri = `${window.location.origin}/callback`;
-  return `${AUTH_SERVICE}/register?client_id=qumail&redirect_uri=${encodeURIComponent(redirectUri)}`;
+  return `${AUTH_SERVICE}/register?client_id=qmail&redirect_uri=${encodeURIComponent(redirectUri)}`;
 }
 
 export function exchangeToken(authToken: string) {
