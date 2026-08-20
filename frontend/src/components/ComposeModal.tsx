@@ -3,12 +3,27 @@ import { Plus, X, Send, Paperclip, Lock } from 'lucide-react';
 
 interface Props {
   onClose: () => void;
+  onSend: (to: string, subject: string, body: string) => Promise<void>;
 }
 
-export default function ComposeModal({ onClose }: Props) {
+export default function ComposeModal({ onClose, onSend }: Props) {
   const [to, setTo] = useState('');
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState('');
+
+  async function handleSend() {
+    if (!to.trim() || !body.trim()) return;
+    setSending(true);
+    setError('');
+    try {
+      await onSend(to.trim(), subject.trim() || '(no subject)', body);
+    } catch (e: any) {
+      setError(e.message || 'Send failed');
+      setSending(false);
+    }
+  }
 
   return (
     <div
@@ -40,7 +55,7 @@ export default function ComposeModal({ onClose }: Props) {
         <div style={{ display: 'flex', flexDirection: 'column' }}>
           <input
             className="input"
-            placeholder="To"
+            placeholder="To (recipient email)"
             value={to}
             onChange={e => setTo(e.target.value)}
             style={{ border: 'none', borderBottom: '1px solid var(--color-divider)', borderRadius: 0, padding: '10px 20px', fontSize: 13 }}
@@ -65,14 +80,20 @@ export default function ComposeModal({ onClose }: Props) {
 
         {/* Footer */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 20px', borderTop: '1px solid var(--color-divider)' }}>
-          <button className="btn btn-primary" onClick={onClose} style={{ gap: 8, padding: '8px 20px' }}>
+          <button
+            className="btn btn-primary"
+            onClick={handleSend}
+            disabled={sending || !to.trim() || !body.trim()}
+            style={{ gap: 8, padding: '8px 20px' }}
+          >
             <Send size={14} strokeWidth={2} />
-            Send
+            {sending ? 'Encrypting & sending…' : 'Send'}
           </button>
           <button className="btn btn-secondary" style={{ gap: 6 }}>
             <Paperclip size={13} strokeWidth={2} />
             Attach
           </button>
+          {error && <span style={{ fontSize: 11, color: '#e06666' }}>{error}</span>}
           <div style={{ flex: 1 }} />
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11 }}>
             <Lock size={13} color="#5fbf82" strokeWidth={2} />

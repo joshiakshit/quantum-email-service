@@ -3,9 +3,9 @@ from __future__ import annotations
 from .errors import KeyLookupError
 
 try:
-    from crypto.km_client import KMClient
+    from crypto.km_client import KeyManagerClient as KMClient
 except ImportError:
-    KeyManagerClient = None  # type: ignore
+    KMClient = None  # type: ignore
 
 def get_recipient_kem_public_key(
     client: "KMClient",

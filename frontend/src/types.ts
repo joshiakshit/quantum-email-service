@@ -17,6 +17,15 @@ export interface Email {
   body: string;
 }
 
+export interface AuthState {
+  token: string;
+  client_id: string;
+  name: string;
+  email: string;
+  kem_fingerprint: string;
+  signing_fingerprint: string;
+}
+
 export interface FolderDef {
   id: string;
   label: string;

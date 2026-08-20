@@ -1,23 +1,25 @@
 import { Search, Lock, Unlock, Reply, Forward, Archive, Trash2, ShieldCheck } from 'lucide-react';
-import { EMAILS, AVATARS, FOLDER_LABELS, getInitials } from '@/data';
+import { AVATARS, FOLDER_LABELS, getInitials } from '@/data';
+import type { Email } from '@/types';
 
 interface Props {
   activeFolder: string;
   selectedId: number | null;
   search: string;
+  emails: Email[];
   onSelectEmail: (id: number) => void;
   onSearchChange: (q: string) => void;
 }
 
-export default function InboxView({ activeFolder, selectedId, search, onSelectEmail, onSearchChange }: Props) {
-  const inFolder = EMAILS.filter(e => e.folder === activeFolder);
+export default function InboxView({ activeFolder, selectedId, search, emails, onSelectEmail, onSearchChange }: Props) {
+  const inFolder = emails.filter(e => e.folder === activeFolder);
   const q = search.trim().toLowerCase();
   const filtered = q
     ? inFolder.filter(e => (e.sender + e.subject + e.preview).toLowerCase().includes(q))
     : inFolder;
 
   const currentId = selectedId ?? filtered[0]?.id ?? null;
-  const selected = EMAILS.find(e => e.id === currentId) ?? null;
+  const selected = emails.find(e => e.id === currentId) ?? null;
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'var(--color-surface)', minWidth: 0 }}>
@@ -56,6 +58,11 @@ export default function InboxView({ activeFolder, selectedId, search, onSelectEm
           <div style={{ padding: '10px 16px 6px', fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--color-neutral-600)' }}>
             {FOLDER_LABELS[activeFolder] ?? activeFolder}
           </div>
+          {filtered.length === 0 && (
+            <div style={{ padding: '24px 16px', fontSize: 12, color: 'var(--color-neutral-600)', textAlign: 'center' }}>
+              No messages in this folder
+            </div>
+          )}
           {filtered.map(email => {
             const av = AVATARS[email.avatarIdx % AVATARS.length];
             const initials = getInitials(email.sender);
@@ -119,7 +126,7 @@ export default function InboxView({ activeFolder, selectedId, search, onSelectEm
   );
 }
 
-function ReadingPane({ email }: { email: typeof EMAILS[number] }) {
+function ReadingPane({ email }: { email: Email }) {
   const av = AVATARS[email.avatarIdx % AVATARS.length];
   const initials = getInitials(email.sender);
 
