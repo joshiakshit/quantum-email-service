@@ -18,16 +18,16 @@ export const SETTINGS_TABS = [
 ] as const;
 
 export const AVATARS: AvatarStyle[] = [
-  { bg: 'var(--color-accent-800)', color: 'var(--color-accent-200)' },
-  { bg: '#1a3a4a', color: '#6fa8dc' },
-  { bg: '#3a1a2a', color: '#e06666' },
-  { bg: '#1a3a2a', color: '#93c47d' },
+  { bg: 'var(--accent-bg)', color: 'var(--accent)' },
+  { bg: 'rgba(56, 189, 248, 0.1)', color: '#38bdf8' },
+  { bg: 'rgba(244, 114, 182, 0.1)', color: '#f472b6' },
+  { bg: 'rgba(74, 222, 128, 0.1)', color: '#4ade80' },
 ];
 
 export const LABELS = [
-  { name: 'Classified', color: '#e06666' },
-  { name: 'Mission Critical', color: '#6fa8dc' },
-  { name: 'Cleared', color: '#93c47d' },
+  { name: 'Classified', color: '#ef4444' },
+  { name: 'Mission Critical', color: '#3b82f6' },
+  { name: 'Cleared', color: '#22c55e' },
 ];
 
 export function getInitials(name: string): string {
