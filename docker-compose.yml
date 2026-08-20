@@ -7,6 +7,8 @@ services:
     environment:
       - QMAIL_KM_URL=http://localhost:8000
       - QMAIL_AUTH_URL=https://auth.joshiakshit.live
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:?Set JWT_SECRET_KEY in your environment}
+      - DEBUG=false
 
 networks:
   default:
