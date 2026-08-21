@@ -6,6 +6,10 @@ import logging
 from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 
+from Crypto.PublicKey import RSA
+from Crypto.Cipher import PKCS1_OAEP
+from Crypto.Hash import SHA256
+
 import httpx
 from fastapi import FastAPI, Depends, HTTPException, Header, Query, Request
 from fastapi.concurrency import run_in_threadpool
@@ -34,6 +38,31 @@ from storage import repositories as repo
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s")
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Ephemeral RSA-OAEP key pair — generated once per process, never persisted.
+# The public key is served to clients so they can encrypt the login password
+# before sending it. The private key decrypts it here before forwarding to
+# the auth service. This prevents plaintext passwords from appearing in
+# network payloads (DevTools, proxy logs, etc.).
+# ---------------------------------------------------------------------------
+_rsa_key = RSA.generate(2048)
+_rsa_private_key = _rsa_key
+_rsa_public_key_b64 = _rsa_key.publickey().export_key("DER")
+import base64 as _b64mod
+_rsa_public_key_b64 = _b64mod.b64encode(_rsa_public_key_b64).decode("ascii")
+logger.info("Ephemeral RSA-2048 OAEP key pair generated")
+
+
+def _decrypt_password(encrypted_password: str) -> str:
+    """Decrypt a Base64-encoded RSA-OAEP ciphertext from the frontend."""
+    try:
+        ciphertext = _b64mod.b64decode(encrypted_password)
+        cipher = PKCS1_OAEP.new(_rsa_private_key, hashAlgo=SHA256)
+        return cipher.decrypt(ciphertext).decode("utf-8")
+    except Exception:
+        raise HTTPException(400, "Invalid encrypted_password")
+
 
 session_store = SessionStore()
 http_client: httpx.AsyncClient | None = None
@@ -103,14 +132,14 @@ EMAIL_DOMAIN = "qmail.secure"
 
 class LoginReq(BaseModel):
     username: str
-    password: str
+    encrypted_password: str  # RSA-OAEP encrypted by the client; decrypted here
 
 
 class RegisterReq(BaseModel):
     first_name: str
     last_name: str
     username: str
-    password: str
+    encrypted_password: str  # RSA-OAEP encrypted by the client; decrypted here
 
 
 def _to_email(username: str) -> str:
@@ -231,14 +260,25 @@ async def _create_session(auth_token: str, db: AsyncSession):
     return _session_response(token, email, name, cred)
 
 
+@app.get("/api/auth/public-key")
+async def get_auth_public_key():
+    """
+    Returns the gateway's ephemeral RSA-2048 public key (SPKI DER, Base64-encoded).
+    The frontend imports this with SubtleCrypto and uses it to encrypt the login
+    password before sending. The key changes on every server restart.
+    """
+    return {"public_key": _rsa_public_key_b64}
+
+
 @app.post("/api/auth/login")
 @limiter.limit("5/minute")
 async def auth_login(request: Request, req: LoginReq, db: AsyncSession = Depends(get_db)):
     email = _to_email(req.username)
+    password = _decrypt_password(req.encrypted_password)
     try:
         resp = await http_client.post(
             f"{AUTH_SERVICE_URL}/api/v1/auth/login",
-            json={"email": email, "password": req.password},
+            json={"email": email, "password": password},
         )
     except httpx.RequestError:
         raise HTTPException(502, "Auth service unreachable")
@@ -258,10 +298,11 @@ async def auth_login(request: Request, req: LoginReq, db: AsyncSession = Depends
 async def auth_register(request: Request, req: RegisterReq, db: AsyncSession = Depends(get_db)):
     email = _to_email(req.username)
     name = f"{req.first_name} {req.last_name}".strip()
+    password = _decrypt_password(req.encrypted_password)
     try:
         resp = await http_client.post(
             f"{AUTH_SERVICE_URL}/api/v1/auth/register",
-            json={"email": email, "password": req.password, "name": name},
+            json={"email": email, "password": password, "name": name},
         )
     except httpx.RequestError:
         raise HTTPException(502, "Auth service unreachable")
@@ -275,7 +316,7 @@ async def auth_register(request: Request, req: RegisterReq, db: AsyncSession = D
     try:
         login_resp = await http_client.post(
             f"{AUTH_SERVICE_URL}/api/v1/auth/login",
-            json={"email": email, "password": req.password},
+            json={"email": email, "password": password},
         )
     except httpx.RequestError:
         raise HTTPException(502, "Auth service unreachable")
