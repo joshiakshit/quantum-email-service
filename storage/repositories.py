@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from storage.models import UserCredential, RegisteredUser, EmailToClient, Message
+from storage.models import UserCredential, RegisteredUser, EmailToClient, Message, VaultBlob
 
 
 async def get_credential_by_email(db: AsyncSession, email: str) -> dict | None:
@@ -13,11 +13,8 @@ async def get_credential_by_email(db: AsyncSession, email: str) -> dict | None:
         "client_id": row.client_id,
         "name": row.name,
         "kem_pk": row.kem_pk,
-        "kem_sk": row.kem_sk,
         "sign_pk": row.sign_pk,
-        "sign_sk": row.sign_sk,
         "x25519_pk": row.x25519_pk,
-        "x25519_sk": row.x25519_sk,
         "reg_secret": row.reg_secret,
         "registered_at": row.registered_at.isoformat() if row.registered_at else None,
     }
@@ -32,11 +29,8 @@ async def save_credential(db: AsyncSession, email: str, data: dict) -> None:
         client_id=data["client_id"],
         name=data["name"],
         kem_pk=data["kem_pk"],
-        kem_sk=data["kem_sk"],
         sign_pk=data["sign_pk"],
-        sign_sk=data["sign_sk"],
         x25519_pk=data.get("x25519_pk"),
-        x25519_sk=data.get("x25519_sk"),
         reg_secret=data["reg_secret"],
     )
     db.add(row)
@@ -85,6 +79,24 @@ async def save_email_mapping(db: AsyncSession, email: str, client_id: str) -> No
     await db.flush()
 
 
+async def get_vault_blob(db: AsyncSession, email: str) -> dict | None:
+    row = await db.get(VaultBlob, email)
+    if not row:
+        return None
+    return {"salt": row.salt, "iv": row.iv, "ciphertext": row.ciphertext}
+
+
+async def save_vault_blob(
+    db: AsyncSession, email: str, salt: bytes, iv: bytes, ciphertext: bytes,
+) -> None:
+    row = await db.get(VaultBlob, email)
+    if row:
+        row.salt, row.iv, row.ciphertext = salt, iv, ciphertext
+    else:
+        db.add(VaultBlob(email=email, salt=salt, iv=iv, ciphertext=ciphertext))
+    await db.flush()
+
+
 async def get_inbox(db: AsyncSession, email: str) -> list[Message]:
     result = await db.execute(
         select(Message)
@@ -116,14 +128,14 @@ async def get_sent(db: AsyncSession, email: str) -> list[Message]:
 
 
 async def append_to_sent(
-    db: AsyncSession, email: str, to_email: str, subject: str, body: str,
+    db: AsyncSession, email: str, to_email: str, subject: str, raw_mime: str,
 ) -> Message:
     msg = Message(
         owner_email=email,
         folder="sent",
         peer_email=to_email,
         subject=subject,
-        body=body,
+        raw_mime=raw_mime,
     )
     db.add(msg)
     await db.flush()

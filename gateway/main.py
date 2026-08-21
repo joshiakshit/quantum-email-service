@@ -24,9 +24,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import json
+import base64
 
-from crypto.pqc import generate_kem_keypair, generate_signing_keypair, generate_x25519_keypair
-from crypto.envelope import seal_envelope, open_envelope
 from crypto.email_helpers import envelope_to_mime, mime_to_envelope, extract_metadata
 
 from storage.database import init_db, get_db, close_db
@@ -123,14 +122,30 @@ def _to_email(username: str) -> str:
 class SendReq(BaseModel):
     to_email: str
     subject: str
-    body: str
+    recipient_envelope: str
+    self_envelope: str
+
+
+class RegisterKeysReq(BaseModel):
+    kem_pk: str
+    sign_pk: str
+    x25519_pk: str
+
+
+class VaultBlobReq(BaseModel):
+    salt: str
+    iv: str
+    ciphertext: str
+
+
+def _bearer_token(authorization: str | None) -> str:
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(401, "Missing token")
+    return authorization.removeprefix("Bearer ").strip()
 
 
 async def _get_session(authorization: str | None) -> dict:
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(401, "Missing token")
-    token = authorization.removeprefix("Bearer ").strip()
-    s = await session_store.get(token)
+    s = await session_store.get(_bearer_token(authorization))
     if not s:
         raise HTTPException(401, "Invalid session")
     return s
@@ -139,6 +154,10 @@ async def _get_session(authorization: str | None) -> dict:
 def _fingerprint(key_bytes: bytes) -> str:
     h = hashlib.sha256(key_bytes).hexdigest().upper()
     return ":".join(h[i:i+2] for i in range(0, 16, 2))
+
+
+def _b64(data: bytes) -> str:
+    return base64.b64encode(data).decode("ascii")
 
 
 async def _resolve_verify_key(db: AsyncSession, env_json: str) -> bytes | None:
@@ -160,6 +179,34 @@ async def _resolve_verify_key(db: AsyncSession, env_json: str) -> bytes | None:
         return None
 
 
+async def _store_session(token: str, email: str, name: str, cred: dict | None) -> None:
+    data: dict = {"email": email, "name": name}
+    if cred:
+        data.update({
+            "client_id": cred["client_id"],
+            "name": cred["name"],
+            "kem_pk": cred["kem_pk"],
+            "sign_pk": cred["sign_pk"],
+            "x25519_pk": cred.get("x25519_pk"),
+            "reg_secret": cred["reg_secret"],
+            "registered_at": cred["registered_at"],
+        })
+    await session_store.set(token, data)
+
+
+def _session_response(token: str, email: str, name: str, cred: dict | None) -> dict:
+    registered = cred is not None
+    return {
+        "token": token,
+        "client_id": cred["client_id"] if registered else "",
+        "name": cred["name"] if registered else name,
+        "email": email,
+        "keys_registered": registered,
+        "kem_fingerprint": _fingerprint(cred["kem_pk"]) if registered else "",
+        "signing_fingerprint": _fingerprint(cred["sign_pk"]) if registered else "",
+    }
+
+
 async def _create_session(auth_token: str, db: AsyncSession):
     try:
         resp = await http_client.get(
@@ -175,69 +222,13 @@ async def _create_session(auth_token: str, db: AsyncSession):
     email = user_info.get("email", "")
     name = user_info.get("name") or user_info.get("username") or email.split("@")[0]
 
+    # Secret keys never touch the server; the client generates them and posts only
+    # its public keys via /api/keys/register on first use.
     cred = await repo.get_credential_by_email(db, email)
 
-    if not cred:
-        kem_pk, kem_sk = await run_in_threadpool(generate_kem_keypair)
-        sign_pk, sign_sk = await run_in_threadpool(generate_signing_keypair)
-        x25519_pk, x25519_sk = await run_in_threadpool(generate_x25519_keypair)
-
-        from crypto.km_client import KeyManagerClient
-        km = KeyManagerClient(base_url=KM_URL, verify_ssl=KM_VERIFY_SSL)
-        registered = None
-        try:
-            registered = await run_in_threadpool(km.register, name, email, kem_pk, sign_pk, x25519_pk)
-            await run_in_threadpool(km.authenticate, registered["client_id"], registered["registration_secret"])
-        except Exception as e:
-            # a concurrent first-login may have registered this email; reuse it
-            cred = await repo.get_credential_by_email(db, email)
-            if not cred:
-                raise HTTPException(502, f"Key Manager error: {e}")
-
-        if registered:
-            client_id = registered["client_id"]
-            cred = {
-                "client_id": client_id,
-                "name": name,
-                "kem_pk": kem_pk,
-                "kem_sk": kem_sk,
-                "sign_pk": sign_pk,
-                "sign_sk": sign_sk,
-                "x25519_pk": x25519_pk,
-                "x25519_sk": x25519_sk,
-                "reg_secret": registered["registration_secret"],
-                "registered_at": datetime.now(timezone.utc).isoformat(),
-            }
-            await repo.save_credential(db, email, cred)
-            await repo.save_registered_user(db, client_id, {
-                "name": name, "email": email,
-                "kem_pk": kem_pk, "sign_pk": sign_pk, "x25519_pk": x25519_pk,
-            })
-            await repo.save_email_mapping(db, email, client_id)
-
     token = secrets.token_hex(32)
-    await session_store.set(token, {
-        "client_id": cred["client_id"],
-        "name": cred["name"],
-        "email": email,
-        "kem_pk": cred["kem_pk"],
-        "kem_sk": cred["kem_sk"],
-        "sign_pk": cred["sign_pk"],
-        "sign_sk": cred["sign_sk"],
-        "x25519_pk": cred.get("x25519_pk"),
-        "x25519_sk": cred.get("x25519_sk"),
-        "reg_secret": cred["reg_secret"],
-        "registered_at": cred["registered_at"],
-    })
-
-    return {
-        "token": token,
-        "client_id": cred["client_id"],
-        "name": cred["name"],
-        "email": email,
-        "kem_fingerprint": _fingerprint(cred["kem_pk"]),
-        "signing_fingerprint": _fingerprint(cred["sign_pk"]),
-    }
+    await _store_session(token, email, name, cred)
+    return _session_response(token, email, name, cred)
 
 
 @app.post("/api/auth/login")
@@ -298,13 +289,15 @@ async def auth_register(request: Request, req: RegisterReq, db: AsyncSession = D
 @app.get("/api/auth/status")
 async def auth_status(authorization: str = Header(None)):
     s = await _get_session(authorization)
+    registered = bool(s.get("client_id"))
     return {
-        "client_id": s["client_id"],
+        "client_id": s.get("client_id", ""),
         "name": s["name"],
         "email": s["email"],
-        "kem_fingerprint": _fingerprint(s["kem_pk"]),
-        "signing_fingerprint": _fingerprint(s["sign_pk"]),
-        "registered_at": s["registered_at"],
+        "keys_registered": registered,
+        "kem_fingerprint": _fingerprint(s["kem_pk"]) if registered else "",
+        "signing_fingerprint": _fingerprint(s["sign_pk"]) if registered else "",
+        "registered_at": s.get("registered_at", ""),
     }
 
 
@@ -314,6 +307,148 @@ async def logout(authorization: str = Header(None)):
         token = authorization.removeprefix("Bearer ").strip()
         await session_store.delete(token)
     return {"status": "ok"}
+
+
+def _registered_response(cred: dict) -> dict:
+    return {
+        "client_id": cred["client_id"],
+        "name": cred["name"],
+        "keys_registered": True,
+        "kem_fingerprint": _fingerprint(cred["kem_pk"]),
+        "signing_fingerprint": _fingerprint(cred["sign_pk"]),
+        "registered_at": cred["registered_at"],
+    }
+
+
+@app.post("/api/keys/register")
+async def register_keys(
+    req: RegisterKeysReq,
+    authorization: str = Header(None),
+    db: AsyncSession = Depends(get_db),
+):
+    token = _bearer_token(authorization)
+    s = await _get_session(authorization)
+    email, name = s["email"], s["name"]
+
+    existing = await repo.get_credential_by_email(db, email)
+    if existing:
+        # keys already registered (this or another device did it first) — adopt them
+        await _store_session(token, email, name, existing)
+        return _registered_response(existing)
+
+    try:
+        kem_pk = base64.b64decode(req.kem_pk)
+        sign_pk = base64.b64decode(req.sign_pk)
+        x25519_pk = base64.b64decode(req.x25519_pk)
+    except Exception:
+        raise HTTPException(422, "Invalid key encoding")
+
+    from crypto.km_client import KeyManagerClient
+    km = KeyManagerClient(base_url=KM_URL, verify_ssl=KM_VERIFY_SSL)
+    registered = None
+    try:
+        registered = await run_in_threadpool(km.register, name, email, kem_pk, sign_pk, x25519_pk)
+        await run_in_threadpool(km.authenticate, registered["client_id"], registered["registration_secret"])
+    except Exception as e:
+        # a concurrent first-login may have registered this email; reuse it
+        existing = await repo.get_credential_by_email(db, email)
+        if not existing:
+            raise HTTPException(502, f"Key Manager error: {e}")
+
+    if registered:
+        client_id = registered["client_id"]
+        existing = {
+            "client_id": client_id,
+            "name": name,
+            "kem_pk": kem_pk,
+            "sign_pk": sign_pk,
+            "x25519_pk": x25519_pk,
+            "reg_secret": registered["registration_secret"],
+            "registered_at": datetime.now(timezone.utc).isoformat(),
+        }
+        await repo.save_credential(db, email, existing)
+        await repo.save_registered_user(db, client_id, {
+            "name": name, "email": email,
+            "kem_pk": kem_pk, "sign_pk": sign_pk, "x25519_pk": x25519_pk,
+        })
+        await repo.save_email_mapping(db, email, client_id)
+
+    await _store_session(token, email, name, existing)
+    return _registered_response(existing)
+
+
+@app.get("/api/keys/lookup")
+async def lookup_recipient(
+    email: str = Query(...),
+    authorization: str = Header(None),
+    db: AsyncSession = Depends(get_db),
+):
+    s = await _get_session(authorization)
+
+    client_id = await repo.get_client_id_by_email(db, email)
+    kem_pk = sign_pk = x25519_pk = None
+    if client_id:
+        reg = await repo.get_registered_user(db, client_id)
+        if reg:
+            kem_pk, sign_pk, x25519_pk = reg["kem_pk"], reg["sign_pk"], reg.get("x25519_pk")
+
+    if not (client_id and kem_pk and sign_pk and x25519_pk) and s.get("client_id"):
+        # fall back to the Key Manager directory, authenticating as the caller
+        from crypto.km_client import KeyManagerClient
+        km = KeyManagerClient(base_url=KM_URL, verify_ssl=KM_VERIFY_SSL)
+        try:
+            await run_in_threadpool(km.authenticate, s["client_id"], s["reg_secret"])
+            keys = await run_in_threadpool(km.directory_lookup, email)
+            client_id = keys["client_id"]
+            kem_pk = keys["kem_public_key"]
+            sign_pk = keys["signing_public_key"]
+            x25519_pk = keys.get("x25519_public_key")
+        except Exception:
+            pass
+
+    if not (client_id and kem_pk and sign_pk and x25519_pk):
+        raise HTTPException(404, "Recipient not registered or missing hybrid KEM keys")
+
+    return {
+        "client_id": client_id,
+        "kem_pk": _b64(kem_pk),
+        "sign_pk": _b64(sign_pk),
+        "x25519_pk": _b64(x25519_pk),
+    }
+
+
+@app.put("/api/vault")
+async def put_vault(
+    req: VaultBlobReq,
+    authorization: str = Header(None),
+    db: AsyncSession = Depends(get_db),
+):
+    s = await _get_session(authorization)
+    try:
+        salt = base64.b64decode(req.salt)
+        iv = base64.b64decode(req.iv)
+        ciphertext = base64.b64decode(req.ciphertext)
+    except Exception:
+        raise HTTPException(422, "Invalid blob encoding")
+    # Blob is passphrase-encrypted client-side; the server stores it but cannot read it.
+    await repo.save_vault_blob(db, s["email"], salt, iv, ciphertext)
+    return {"status": "ok"}
+
+
+@app.get("/api/vault")
+async def get_vault(
+    authorization: str = Header(None),
+    db: AsyncSession = Depends(get_db),
+):
+    s = await _get_session(authorization)
+    blob = await repo.get_vault_blob(db, s["email"])
+    if not blob:
+        raise HTTPException(404, "No vault stored")
+    return {
+        "salt": _b64(blob["salt"]),
+        "iv": _b64(blob["iv"]),
+        "ciphertext": _b64(blob["ciphertext"]),
+    }
 
 
 @app.get("/api/emails")
@@ -332,17 +467,9 @@ async def get_emails(
             meta = extract_metadata(raw)
             try:
                 env_json = mime_to_envelope(raw)
-                sender_verify_key = await _resolve_verify_key(db, env_json)
-                plaintext = await run_in_threadpool(
-                    open_envelope, env_json, s["kem_sk"], s.get("x25519_sk"), sender_verify_key,
-                )
-                body = plaintext.decode("utf-8", errors="replace")
-                encrypted = True
-                fp = _fingerprint(s["kem_pk"])
             except Exception:
-                body = "(decryption failed)"
-                encrypted = False
-                fp = ""
+                env_json = ""
+            verify_key = await _resolve_verify_key(db, env_json) if env_json else None
 
             sender_full = meta.get("from", "Unknown")
             sender_name = sender_full.split("<")[0].strip() if "<" in sender_full else sender_full
@@ -355,32 +482,34 @@ async def get_emails(
                 "sender": sender_name,
                 "senderEmail": sender_email,
                 "subject": meta.get("subject", "(no subject)"),
-                "preview": body[:80] + ("…" if len(body) > 80 else ""),
-                "body": body,
+                "envelope": env_json,
+                "senderVerifyKey": _b64(verify_key) if verify_key else "",
                 "time": ts.strftime("%H:%M"),
                 "fullDate": ts.strftime("%d %b %Y at %H:%M UTC"),
-                "encrypted": encrypted,
-                "fingerprint": fp,
                 "unread": not msg.is_read,
                 "avatarIdx": i % 4,
                 "label": "", "labelBg": "", "labelColor": "",
             })
     elif folder == "sent":
         messages = await repo.get_sent(db, s["email"])
-        for i, msg in enumerate(messages):
+        self_verify_key = _b64(s["sign_pk"]) if s.get("sign_pk") else ""
+        for msg in messages:
+            raw = msg.raw_mime or ""
+            try:
+                env_json = mime_to_envelope(raw)
+            except Exception:
+                env_json = ""
             ts = msg.created_at or datetime.now(timezone.utc)
             result.append({
                 "id": msg.id,
                 "folder": "sent",
                 "sender": "You",
                 "senderEmail": s["email"],
-                "subject": msg.subject,
-                "preview": (msg.body or "")[:80],
-                "body": msg.body or "",
+                "subject": msg.subject or "(no subject)",
+                "envelope": env_json,
+                "senderVerifyKey": self_verify_key,
                 "time": ts.strftime("%H:%M"),
                 "fullDate": ts.strftime("%d %b %Y at %H:%M UTC"),
-                "encrypted": True,
-                "fingerprint": _fingerprint(s["sign_pk"]),
                 "unread": False,
                 "avatarIdx": 0,
                 "label": "", "labelBg": "", "labelColor": "",
@@ -396,57 +525,27 @@ async def send_email(
     db: AsyncSession = Depends(get_db),
 ):
     s = await _get_session(authorization)
+    if not s.get("client_id"):
+        raise HTTPException(400, "Register your keys before sending")
 
-    recipient_client_id = await repo.get_client_id_by_email(db, req.to_email)
-    if not recipient_client_id:
-        raise HTTPException(404, "Recipient not registered")
-
-    recipient_kem_pk = None
-    recipient_x25519_pk = None
-
-    reg_user = await repo.get_registered_user(db, recipient_client_id)
-    if reg_user:
-        recipient_kem_pk = reg_user["kem_pk"]
-        recipient_x25519_pk = reg_user.get("x25519_pk")
-
-    if not (recipient_kem_pk and recipient_x25519_pk):
-        from crypto.km_client import KeyManagerClient
-        km = KeyManagerClient(base_url=KM_URL, verify_ssl=KM_VERIFY_SSL)
-        try:
-            keys = await run_in_threadpool(km.get_public_keys, recipient_client_id)
-            recipient_kem_pk = keys["kem_public_key"]
-            recipient_x25519_pk = keys.get("x25519_public_key")
-        except Exception:
-            pass
-
-    if not recipient_kem_pk or not recipient_x25519_pk:
-        raise HTTPException(404, "Recipient not registered or missing hybrid KEM keys")
-
-    env_json = await run_in_threadpool(
-        seal_envelope,
-        req.body.encode("utf-8"),
-        recipient_kem_pk,
-        s["sign_sk"],
-        s["client_id"],
-        recipient_client_id,
-        recipient_x25519_pk=recipient_x25519_pk,
-        subject=req.subject,
-    )
-    mime_msg = envelope_to_mime(env_json, s["email"], req.to_email, req.subject)
+    # Envelopes arrive sealed from the client; the server never sees plaintext or
+    # secret keys. It only wraps them in MIME for storage and relay.
+    recipient_mime = envelope_to_mime(req.recipient_envelope, s["email"], req.to_email, req.subject)
+    self_mime = envelope_to_mime(req.self_envelope, s["email"], req.to_email, req.subject)
 
     smtp_host = os.environ.get("QMAIL_SMTP_HOST")
     if smtp_host:
         from email_pipeline.Smtp_sender import send_mime_message
         from email_pipeline.config import SMTPConfig
-        await run_in_threadpool(send_mime_message, mime_msg, SMTPConfig.from_env())
+        await run_in_threadpool(send_mime_message, recipient_mime, SMTPConfig.from_env())
 
-    await repo.append_to_inbox(db, req.to_email, mime_msg.as_string())
-    await repo.append_to_sent(db, s["email"], req.to_email, req.subject, req.body)
+    await repo.append_to_inbox(db, req.to_email, recipient_mime.as_string())
+    await repo.append_to_sent(db, s["email"], req.to_email, req.subject, self_mime.as_string())
 
     return {
         "status": "sent",
         "encrypted": True,
-        "algorithm": "ML-KEM-768 + ML-DSA-65 + AES-256-GCM",
+        "algorithm": "X25519+ML-KEM-768 / ML-DSA-65 / AES-256-GCM",
         "fingerprint": _fingerprint(s["sign_pk"]),
     }
 
@@ -454,15 +553,18 @@ async def send_email(
 @app.get("/api/keys/info")
 async def keys_info(authorization: str = Header(None)):
     s = await _get_session(authorization)
+    registered = bool(s.get("client_id"))
     return {
-        "client_id": s["client_id"],
-        "kem_algorithm": "ML-KEM-768",
+        "client_id": s.get("client_id", ""),
+        "kem_algorithm": "X25519 + ML-KEM-768",
         "signing_algorithm": "ML-DSA-65",
-        "kem_fingerprint": _fingerprint(s["kem_pk"]),
-        "signing_fingerprint": _fingerprint(s["sign_pk"]),
-        "registered_at": s["registered_at"],
+        "keys_registered": registered,
+        "kem_fingerprint": _fingerprint(s["kem_pk"]) if registered else "",
+        "signing_fingerprint": _fingerprint(s["sign_pk"]) if registered else "",
+        "registered_at": s.get("registered_at", ""),
         "km_url": KM_URL,
         "km_status": "connected",
+        "custody": "client",
     }
 
 

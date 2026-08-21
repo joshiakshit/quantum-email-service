@@ -8,9 +8,41 @@ import SettingsPanel from '@/components/SettingsPanel';
 import ComposeModal from '@/components/ComposeModal';
 import KeyManagementModal from '@/components/KeyManagementModal';
 import AuthScreen from '@/components/AuthScreen';
+import LockScreen from '@/components/LockScreen';
 import { FOLDER_IDS, FOLDER_LABELS } from '@/data';
 import * as api from '@/api';
+import * as session from '@/session';
 import type { Email, AuthState, ComposeDraft } from './types';
+
+async function decryptEmail(raw: api.RawEmail, kemFingerprint: string): Promise<Email> {
+  let body: string;
+  let encrypted: boolean;
+  try {
+    body = await session.open(raw.envelope, raw.senderVerifyKey);
+    encrypted = true;
+  } catch {
+    body = '(unable to decrypt this message)';
+    encrypted = false;
+  }
+  return {
+    id: raw.id,
+    folder: raw.folder,
+    sender: raw.sender,
+    senderEmail: raw.senderEmail,
+    subject: raw.subject,
+    time: raw.time,
+    fullDate: raw.fullDate,
+    unread: raw.unread,
+    avatarIdx: raw.avatarIdx,
+    label: raw.label,
+    labelBg: raw.labelBg,
+    labelColor: raw.labelColor,
+    body,
+    preview: body.slice(0, 80) + (body.length > 80 ? '…' : ''),
+    encrypted,
+    fingerprint: encrypted ? kemFingerprint : '',
+  };
+}
 
 const SIDEBAR_W = 272;
 const SIDEBAR_W_COLLAPSED = 68;
@@ -37,6 +69,7 @@ function quote(email: Email) {
 export default function App() {
   const { theme, toggle: toggleTheme } = useTheme();
   const [auth, setAuth] = useState<AuthState | null>(null);
+  const [unlocked, setUnlocked] = useState(session.isUnlocked());
   const [authChecked, setAuthChecked] = useState(false);
   const [emails, setEmails] = useState<Email[]>([]);
   const [refreshing, setRefreshing] = useState(false);
@@ -75,21 +108,26 @@ export default function App() {
     }
   }, []);
 
+  const kemFingerprint = auth?.kem_fingerprint ?? '';
+
   const fetchEmails = useCallback(async (folder: string) => {
     setRefreshing(true);
     try {
       const data = await api.getEmails(folder);
+      const decrypted = await Promise.all(
+        data.emails.map(raw => decryptEmail(raw, kemFingerprint)),
+      );
       setEmails(prev => {
         const other = prev.filter(e => e.folder !== folder);
-        return [...other, ...data.emails];
+        return [...other, ...decrypted];
       });
     } catch { /* gateway not running */ }
     setRefreshing(false);
-  }, []);
+  }, [kemFingerprint]);
 
   useEffect(() => {
-    if (auth) fetchEmails(activeFolder);
-  }, [auth, activeFolder, fetchEmails]);
+    if (auth && unlocked) fetchEmails(activeFolder);
+  }, [auth, unlocked, activeFolder, fetchEmails]);
 
   const isUnread = useCallback(
     (email: Email) => readState[email.id] ?? email.unread,
@@ -179,7 +217,12 @@ export default function App() {
   }
 
   async function handleSend(to: string, subject: string, body: string) {
-    await api.sendEmail(to, subject, body);
+    if (!auth) return;
+    const recipient = await api.lookupRecipient(to);
+    const recipientEnvelope = await session.seal(body, auth.client_id, recipient, subject);
+    const self = { client_id: auth.client_id, ...session.publicKeys() };
+    const selfEnvelope = await session.seal(body, auth.client_id, self, subject);
+    await api.sendEmail(to, subject, recipientEnvelope, selfEnvelope);
     setCompose(null);
     fetchEmails('sent');
   }
@@ -187,17 +230,28 @@ export default function App() {
   async function handleLogout() {
     try { await api.logout(); } catch { /* session already gone */ }
     localStorage.removeItem('qmail_token');
+    session.lock();
+    setUnlocked(false);
     setAuth(null);
     setEmails([]);
     setOpenId(null);
     setSettingsOpen(false);
   }
 
+  function handleAuthenticated(a: AuthState) {
+    setAuth(a);
+    setUnlocked(session.isUnlocked());
+  }
+
   if (!authChecked) {
     return <div style={{ width: '100vw', height: '100vh', background: 'var(--bg)' }} />;
   }
 
-  if (!auth) return <AuthScreen onAuth={setAuth} />;
+  if (!auth) return <AuthScreen onAuth={handleAuthenticated} />;
+
+  if (!unlocked) {
+    return <LockScreen auth={auth} onUnlocked={handleAuthenticated} onLogout={handleLogout} />;
+  }
 
   const navWidth = collapsed ? SIDEBAR_W_COLLAPSED : SIDEBAR_W;
   const listTitle = query

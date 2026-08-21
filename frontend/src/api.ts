@@ -23,8 +23,44 @@ export interface AuthResponse {
   client_id: string;
   name: string;
   email: string;
+  keys_registered: boolean;
   kem_fingerprint: string;
   signing_fingerprint: string;
+}
+
+export interface RegisterKeysResponse {
+  client_id: string;
+  name: string;
+  keys_registered: boolean;
+  kem_fingerprint: string;
+  signing_fingerprint: string;
+  registered_at: string;
+}
+
+export interface RecipientKeysResponse {
+  client_id: string;
+  kem_pk: string;
+  sign_pk: string;
+  x25519_pk: string;
+}
+
+// Server-side view of a message: ciphertext envelope plus the sender's public
+// verify key. The body is decrypted client-side; the server never sees it.
+export interface RawEmail {
+  id: number;
+  folder: string;
+  sender: string;
+  senderEmail: string;
+  subject: string;
+  envelope: string;
+  senderVerifyKey: string;
+  time: string;
+  fullDate: string;
+  unread: boolean;
+  avatarIdx: number;
+  label: string;
+  labelBg: string;
+  labelColor: string;
 }
 
 export interface KeysInfo {
@@ -56,14 +92,52 @@ export function getAuthStatus() {
   return request<Omit<AuthResponse, 'token'>>('/auth/status');
 }
 
-export function getEmails(folder = 'inbox') {
-  return request<{ emails: import('./types').Email[] }>(`/emails?folder=${folder}`);
+export function registerKeys(publicKeys: { kem_pk: string; sign_pk: string; x25519_pk: string }) {
+  return request<RegisterKeysResponse>('/keys/register', {
+    method: 'POST',
+    body: JSON.stringify(publicKeys),
+  });
 }
 
-export function sendEmail(toEmail: string, subject: string, body: string) {
+export interface VaultBlobResponse {
+  salt: string;
+  iv: string;
+  ciphertext: string;
+}
+
+export function putVault(blob: { salt: string; iv: string; ciphertext: string }) {
+  return request<{ status: string }>('/vault', { method: 'PUT', body: JSON.stringify(blob) });
+}
+
+export function getVault() {
+  return request<VaultBlobResponse>('/vault');
+}
+
+export function lookupRecipient(email: string) {
+  return request<RecipientKeysResponse>(`/keys/lookup?email=${encodeURIComponent(email)}`);
+}
+
+export function getEmails(folder = 'inbox') {
+  return request<{ emails: RawEmail[] }>(`/emails?folder=${folder}`);
+}
+
+export function sendEmail(
+  toEmail: string,
+  subject: string,
+  recipientEnvelope: string,
+  selfEnvelope: string,
+) {
   return request<{ status: string; encrypted: boolean; algorithm: string; fingerprint: string }>(
     '/emails/send',
-    { method: 'POST', body: JSON.stringify({ to_email: toEmail, subject, body }) },
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        to_email: toEmail,
+        subject,
+        recipient_envelope: recipientEnvelope,
+        self_envelope: selfEnvelope,
+      }),
+    },
   );
 }
 

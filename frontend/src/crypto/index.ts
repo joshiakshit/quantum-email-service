@@ -30,7 +30,10 @@ export {
   changePassphrase,
   vaultExists,
   destroyVault,
+  exportVaultBlob,
+  importVaultBlob,
 } from './vault';
+export type { VaultBlob } from './vault';
 
 export { createCryptoWorker } from './worker';
 export type { CryptoWorkerAPI } from './worker';

@@ -22,6 +22,7 @@ export interface AuthState {
   client_id: string;
   name: string;
   email: string;
+  keys_registered: boolean;
   kem_fingerprint: string;
   signing_fingerprint: string;
 }

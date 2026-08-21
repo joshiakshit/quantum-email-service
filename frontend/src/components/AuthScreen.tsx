@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { ShieldCheck, Lock, Fingerprint, Zap, Loader2, Eye, EyeOff, ArrowRight, Mail } from 'lucide-react';
+import { ShieldCheck, Lock, Fingerprint, Zap, Loader2, Eye, EyeOff, ArrowRight, Mail, KeyRound } from 'lucide-react';
 import * as api from '@/api';
+import * as session from '@/session';
 import type { AuthState } from '@/types';
 
 interface Props {
@@ -22,6 +23,8 @@ export default function AuthScreen({ onAuth }: Props) {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [confirm, setConfirm] = useState('');
+  const [passphrase, setPassphrase] = useState('');
+  const [confirmPass, setConfirmPass] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -31,6 +34,8 @@ export default function AuthScreen({ onAuth }: Props) {
     setMode(m => m === 'login' ? 'register' : 'login');
     setError('');
     setConfirm('');
+    setPassphrase('');
+    setConfirmPass('');
     setFirstName('');
     setLastName('');
     setFormKey(k => k + 1);
@@ -53,8 +58,16 @@ export default function AuthScreen({ onAuth }: Props) {
         setError('Password must be at least 8 characters');
         return;
       }
+      if (passphrase.length < 8) {
+        setError('Encryption passphrase must be at least 8 characters');
+        return;
+      }
+      if (passphrase !== confirmPass) {
+        setError('Encryption passphrases do not match');
+        return;
+      }
     } else {
-      if (!username.trim() || !password) {
+      if (!username.trim() || !password || !passphrase) {
         setError('Please fill in all fields');
         return;
       }
@@ -70,9 +83,39 @@ export default function AuthScreen({ onAuth }: Props) {
         data = await api.login(username.trim(), password);
       }
       localStorage.setItem('qmail_token', data.token);
-      onAuth(data);
+
+      // Secret keys are generated and unlocked in the browser only.
+      let auth: AuthState = { ...data };
+      if (data.keys_registered && await session.hasVault()) {
+        await session.unlock(passphrase);
+      } else if (data.keys_registered) {
+        // New device: pull the passphrase-encrypted vault synced from another device.
+        let blob;
+        try {
+          blob = await api.getVault();
+        } catch {
+          throw new Error('No synced vault was found for this account.');
+        }
+        await session.installVaultBlob(blob);
+        await session.unlock(passphrase);
+      } else {
+        const pub = await session.provision(passphrase);
+        const reg = await api.registerKeys(pub);
+        const blob = await session.getVaultBlob();
+        if (blob) await api.putVault(blob);
+        auth = {
+          ...data,
+          client_id: reg.client_id,
+          name: reg.name,
+          keys_registered: true,
+          kem_fingerprint: reg.kem_fingerprint,
+          signing_fingerprint: reg.signing_fingerprint,
+        };
+      }
+      onAuth(auth);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Something went wrong');
+      const message = err instanceof Error ? err.message : 'Something went wrong';
+      setError(/operation-specific reason|OperationError/i.test(message) ? 'Incorrect passphrase' : message);
       setLoading(false);
     }
   }
@@ -332,6 +375,47 @@ export default function AuthScreen({ onAuth }: Props) {
                 />
               </div>
             )}
+
+            <div style={{
+              display: 'flex', flexDirection: 'column', gap: 6,
+              paddingTop: 4, marginTop: 4, borderTop: '1px solid var(--border)',
+            }}>
+              <label style={{
+                fontSize: 13, fontWeight: 500, color: 'var(--fg-secondary)',
+                display: 'flex', alignItems: 'center', gap: 6,
+              }}>
+                <KeyRound size={13} color="var(--accent)" />
+                Encryption passphrase
+              </label>
+              <input
+                className="input"
+                type="password"
+                value={passphrase}
+                onChange={e => { setPassphrase(e.target.value); setError(''); }}
+                placeholder={mode === 'register' ? 'Protects your private keys' : 'Unlock your private keys'}
+                autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
+              />
+              {mode === 'register' ? (
+                <>
+                  <input
+                    className="input"
+                    type="password"
+                    value={confirmPass}
+                    onChange={e => { setConfirmPass(e.target.value); setError(''); }}
+                    placeholder="Confirm encryption passphrase"
+                    autoComplete="new-password"
+                    style={{ marginTop: 6 }}
+                  />
+                  <div style={{ fontSize: 12, color: 'var(--fg-muted)' }}>
+                    Never sent to the server. If you lose it, your mail cannot be recovered.
+                  </div>
+                </>
+              ) : (
+                <div style={{ fontSize: 12, color: 'var(--fg-muted)' }}>
+                  Decrypts your mail in this browser. Never sent to the server.
+                </div>
+              )}
+            </div>
 
             <button
               type="submit"

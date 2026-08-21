@@ -178,6 +178,21 @@ export async function changePassphrase(
   await createVault(newPassphrase, bundle);
 }
 
+export type VaultBlob = StoredVault;
+
+export async function exportVaultBlob(): Promise<VaultBlob | null> {
+  const db = await openDb();
+  const stored = (await dbGet(db, VAULT_KEY)) as StoredVault | undefined;
+  db.close();
+  return stored ?? null;
+}
+
+export async function importVaultBlob(blob: VaultBlob): Promise<void> {
+  const db = await openDb();
+  await dbPut(db, VAULT_KEY, blob);
+  db.close();
+}
+
 export async function vaultExists(): Promise<boolean> {
   const db = await openDb();
   const stored = await dbGet(db, VAULT_KEY);
