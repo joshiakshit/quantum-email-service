@@ -5,7 +5,23 @@ on:
     branches: [main]
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install --no-cache-dir -r requirements.txt pytest
+
+      - name: Run crypto and QKD tests
+        run: python -m pytest crypto/test_crypto.py qkd_sim/test_bb84.py -q
+
   build-and-push:
+    needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: read

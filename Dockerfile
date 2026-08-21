@@ -30,6 +30,9 @@ COPY --from=frontend /build/dist /app/frontend-build
 COPY entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
+RUN useradd -m -u 10001 appuser
+USER appuser
+
 EXPOSE 9000
 
 CMD ["/app/entrypoint.sh"]

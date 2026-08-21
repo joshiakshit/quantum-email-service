@@ -6,8 +6,9 @@ import logging
 from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 
-import requests as http_requests
+import httpx
 from fastapi import FastAPI, Depends, HTTPException, Header, Query, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -36,14 +37,18 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)-8s | 
 logger = logging.getLogger(__name__)
 
 session_store = SessionStore()
+http_client: httpx.AsyncClient | None = None
 
 
 @asynccontextmanager
 async def lifespan(application: FastAPI):
+    global http_client
     await init_db()
     await session_store.connect()
+    http_client = httpx.AsyncClient(timeout=10.0)
     logger.info("Storage layer initialised")
     yield
+    await http_client.aclose()
     await session_store.close()
     await close_db()
 
@@ -91,6 +96,7 @@ async def validation_exception_handler(request, exc):
 
 
 KM_URL = os.environ.get("QMAIL_KM_URL", "http://localhost:8000")
+KM_VERIFY_SSL = os.environ.get("QMAIL_KM_VERIFY_SSL", "true").lower() == "true"
 AUTH_SERVICE_URL = os.environ.get("QMAIL_AUTH_URL", "https://auth.joshiakshit.live")
 
 EMAIL_DOMAIN = "qmail.secure"
@@ -146,25 +152,25 @@ async def _resolve_verify_key(db: AsyncSession, env_json: str) -> bytes | None:
     if reg and reg.get("sign_pk"):
         return reg["sign_pk"]
     from crypto.km_client import KeyManagerClient
-    km = KeyManagerClient(base_url=KM_URL, verify_ssl=False)
+    km = KeyManagerClient(base_url=KM_URL, verify_ssl=KM_VERIFY_SSL)
     try:
-        return km.get_public_keys(sender_id)["signing_public_key"]
+        keys = await run_in_threadpool(km.get_public_keys, sender_id)
+        return keys["signing_public_key"]
     except Exception:
         return None
 
 
 async def _create_session(auth_token: str, db: AsyncSession):
     try:
-        resp = http_requests.get(
+        resp = await http_client.get(
             f"{AUTH_SERVICE_URL}/api/v1/users/me",
             headers={"Authorization": f"Bearer {auth_token}"},
-            timeout=10,
         )
-        if resp.status_code != 200:
-            raise HTTPException(401, "Invalid or expired auth token")
-        user_info = resp.json()
-    except http_requests.RequestException:
+    except httpx.RequestError:
         raise HTTPException(502, "Auth service unreachable")
+    if resp.status_code != 200:
+        raise HTTPException(401, "Invalid or expired auth token")
+    user_info = resp.json()
 
     email = user_info.get("email", "")
     name = user_info.get("name") or user_info.get("username") or email.split("@")[0]
@@ -172,38 +178,42 @@ async def _create_session(auth_token: str, db: AsyncSession):
     cred = await repo.get_credential_by_email(db, email)
 
     if not cred:
-        kem_pk, kem_sk = generate_kem_keypair()
-        sign_pk, sign_sk = generate_signing_keypair()
-        x25519_pk, x25519_sk = generate_x25519_keypair()
+        kem_pk, kem_sk = await run_in_threadpool(generate_kem_keypair)
+        sign_pk, sign_sk = await run_in_threadpool(generate_signing_keypair)
+        x25519_pk, x25519_sk = await run_in_threadpool(generate_x25519_keypair)
 
         from crypto.km_client import KeyManagerClient
-        km = KeyManagerClient(base_url=KM_URL, verify_ssl=False)
+        km = KeyManagerClient(base_url=KM_URL, verify_ssl=KM_VERIFY_SSL)
+        registered = None
         try:
-            result = km.register(name, email, kem_pk, sign_pk, x25519_pk)
-            client_id = result["client_id"]
-            reg_secret = result["registration_secret"]
-            km.authenticate(client_id, reg_secret)
+            registered = await run_in_threadpool(km.register, name, email, kem_pk, sign_pk, x25519_pk)
+            await run_in_threadpool(km.authenticate, registered["client_id"], registered["registration_secret"])
         except Exception as e:
-            raise HTTPException(502, f"Key Manager error: {e}")
+            # a concurrent first-login may have registered this email; reuse it
+            cred = await repo.get_credential_by_email(db, email)
+            if not cred:
+                raise HTTPException(502, f"Key Manager error: {e}")
 
-        cred = {
-            "client_id": client_id,
-            "name": name,
-            "kem_pk": kem_pk,
-            "kem_sk": kem_sk,
-            "sign_pk": sign_pk,
-            "sign_sk": sign_sk,
-            "x25519_pk": x25519_pk,
-            "x25519_sk": x25519_sk,
-            "reg_secret": reg_secret,
-            "registered_at": datetime.now(timezone.utc).isoformat(),
-        }
-        await repo.save_credential(db, email, cred)
-        await repo.save_registered_user(db, client_id, {
-            "name": name, "email": email,
-            "kem_pk": kem_pk, "sign_pk": sign_pk, "x25519_pk": x25519_pk,
-        })
-        await repo.save_email_mapping(db, email, client_id)
+        if registered:
+            client_id = registered["client_id"]
+            cred = {
+                "client_id": client_id,
+                "name": name,
+                "kem_pk": kem_pk,
+                "kem_sk": kem_sk,
+                "sign_pk": sign_pk,
+                "sign_sk": sign_sk,
+                "x25519_pk": x25519_pk,
+                "x25519_sk": x25519_sk,
+                "reg_secret": registered["registration_secret"],
+                "registered_at": datetime.now(timezone.utc).isoformat(),
+            }
+            await repo.save_credential(db, email, cred)
+            await repo.save_registered_user(db, client_id, {
+                "name": name, "email": email,
+                "kem_pk": kem_pk, "sign_pk": sign_pk, "x25519_pk": x25519_pk,
+            })
+            await repo.save_email_mapping(db, email, client_id)
 
     token = secrets.token_hex(32)
     await session_store.set(token, {
@@ -235,12 +245,11 @@ async def _create_session(auth_token: str, db: AsyncSession):
 async def auth_login(request: Request, req: LoginReq, db: AsyncSession = Depends(get_db)):
     email = _to_email(req.username)
     try:
-        resp = http_requests.post(
+        resp = await http_client.post(
             f"{AUTH_SERVICE_URL}/api/v1/auth/login",
             json={"email": email, "password": req.password},
-            timeout=10,
         )
-    except http_requests.RequestException:
+    except httpx.RequestError:
         raise HTTPException(502, "Auth service unreachable")
 
     if resp.status_code != 200:
@@ -259,12 +268,11 @@ async def auth_register(request: Request, req: RegisterReq, db: AsyncSession = D
     email = _to_email(req.username)
     name = f"{req.first_name} {req.last_name}".strip()
     try:
-        resp = http_requests.post(
+        resp = await http_client.post(
             f"{AUTH_SERVICE_URL}/api/v1/auth/register",
             json={"email": email, "password": req.password, "name": name},
-            timeout=10,
         )
-    except http_requests.RequestException:
+    except httpx.RequestError:
         raise HTTPException(502, "Auth service unreachable")
 
     if resp.status_code not in (200, 201):
@@ -273,11 +281,13 @@ async def auth_register(request: Request, req: RegisterReq, db: AsyncSession = D
             detail = "; ".join(str(e.get("msg", e)) if isinstance(e, dict) else str(e) for e in detail) if isinstance(detail, list) else str(detail)
         raise HTTPException(resp.status_code, detail)
 
-    login_resp = http_requests.post(
-        f"{AUTH_SERVICE_URL}/api/v1/auth/login",
-        json={"email": email, "password": req.password},
-        timeout=10,
-    )
+    try:
+        login_resp = await http_client.post(
+            f"{AUTH_SERVICE_URL}/api/v1/auth/login",
+            json={"email": email, "password": req.password},
+        )
+    except httpx.RequestError:
+        raise HTTPException(502, "Auth service unreachable")
     if login_resp.status_code != 200:
         raise HTTPException(500, "Account created but auto-login failed")
 
@@ -323,8 +333,8 @@ async def get_emails(
             try:
                 env_json = mime_to_envelope(raw)
                 sender_verify_key = await _resolve_verify_key(db, env_json)
-                plaintext = open_envelope(
-                    env_json, s["kem_sk"], s.get("x25519_sk"), sender_verify_key,
+                plaintext = await run_in_threadpool(
+                    open_envelope, env_json, s["kem_sk"], s.get("x25519_sk"), sender_verify_key,
                 )
                 body = plaintext.decode("utf-8", errors="replace")
                 encrypted = True
@@ -401,9 +411,9 @@ async def send_email(
 
     if not (recipient_kem_pk and recipient_x25519_pk):
         from crypto.km_client import KeyManagerClient
-        km = KeyManagerClient(base_url=KM_URL, verify_ssl=False)
+        km = KeyManagerClient(base_url=KM_URL, verify_ssl=KM_VERIFY_SSL)
         try:
-            keys = km.get_public_keys(recipient_client_id)
+            keys = await run_in_threadpool(km.get_public_keys, recipient_client_id)
             recipient_kem_pk = keys["kem_public_key"]
             recipient_x25519_pk = keys.get("x25519_public_key")
         except Exception:
@@ -412,7 +422,8 @@ async def send_email(
     if not recipient_kem_pk or not recipient_x25519_pk:
         raise HTTPException(404, "Recipient not registered or missing hybrid KEM keys")
 
-    env_json = seal_envelope(
+    env_json = await run_in_threadpool(
+        seal_envelope,
         req.body.encode("utf-8"),
         recipient_kem_pk,
         s["sign_sk"],
@@ -427,7 +438,7 @@ async def send_email(
     if smtp_host:
         from email_pipeline.Smtp_sender import send_mime_message
         from email_pipeline.config import SMTPConfig
-        send_mime_message(mime_msg, SMTPConfig.from_env())
+        await run_in_threadpool(send_mime_message, mime_msg, SMTPConfig.from_env())
 
     await repo.append_to_inbox(db, req.to_email, mime_msg.as_string())
     await repo.append_to_sent(db, s["email"], req.to_email, req.subject, req.body)
