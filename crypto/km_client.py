@@ -37,7 +37,7 @@ class KeyManagerClient:
         data = response.json()
         return {
             "client_id": data["client_id"],
-            "registration_secret": data["registration_secret"],
+            "registration_secret": data.get("registration_secret"),
             "status": data["status"],
         }
 

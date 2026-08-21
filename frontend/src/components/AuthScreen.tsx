@@ -98,6 +98,21 @@ export default function AuthScreen({ onAuth }: Props) {
         }
         await session.installVaultBlob(blob);
         await session.unlock(passphrase);
+      } else if (await session.hasVault()) {
+        // Signup already wrote IndexedDB; do not mint a second keypair.
+        await session.unlock(passphrase);
+        const pub = session.publicKeys();
+        const reg = await api.registerKeys(pub);
+        const blob = await session.getVaultBlob();
+        if (blob) await api.putVault(blob);
+        auth = {
+          ...data,
+          client_id: reg.client_id,
+          name: reg.name,
+          keys_registered: true,
+          kem_fingerprint: reg.kem_fingerprint,
+          signing_fingerprint: reg.signing_fingerprint,
+        };
       } else {
         const pub = await session.provision(passphrase);
         const reg = await api.registerKeys(pub);

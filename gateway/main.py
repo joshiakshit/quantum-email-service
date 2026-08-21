@@ -346,14 +346,14 @@ async def register_keys(
     from crypto.km_client import KeyManagerClient
     km = KeyManagerClient(base_url=KM_URL, verify_ssl=KM_VERIFY_SSL)
     registered = None
+    km_error = None
     try:
         registered = await run_in_threadpool(km.register, name, email, kem_pk, sign_pk, x25519_pk)
-        await run_in_threadpool(km.authenticate, registered["client_id"], registered["registration_secret"])
+        secret = registered.get("registration_secret")
+        if secret:
+            await run_in_threadpool(km.authenticate, registered["client_id"], secret)
     except Exception as e:
-        # a concurrent first-login may have registered this email; reuse it
-        existing = await repo.get_credential_by_email(db, email)
-        if not existing:
-            raise HTTPException(502, f"Key Manager error: {e}")
+        km_error = e
 
     if registered:
         client_id = registered["client_id"]
@@ -363,7 +363,7 @@ async def register_keys(
             "kem_pk": kem_pk,
             "sign_pk": sign_pk,
             "x25519_pk": x25519_pk,
-            "reg_secret": registered["registration_secret"],
+            "reg_secret": registered.get("registration_secret") or "",
             "registered_at": datetime.now(timezone.utc).isoformat(),
         }
         await repo.save_credential(db, email, existing)
@@ -372,6 +372,10 @@ async def register_keys(
             "kem_pk": kem_pk, "sign_pk": sign_pk, "x25519_pk": x25519_pk,
         })
         await repo.save_email_mapping(db, email, client_id)
+    else:
+        existing = await repo.get_credential_by_email(db, email)
+        if not existing:
+            raise HTTPException(502, f"Key Manager error: {km_error}")
 
     await _store_session(token, email, name, existing)
     return _registered_response(existing)

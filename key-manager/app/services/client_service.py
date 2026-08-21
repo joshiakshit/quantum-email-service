@@ -42,15 +42,12 @@ def _verify_secret(secret: str, hashed: str) -> bool:
 
 async def register_client(
     db: AsyncSession, request: ClientRegisterRequest
-) -> tuple[Client, str]:
+) -> tuple[Client, str | None]:
     result = await db.execute(select(Client).where(Client.email == request.email))
     existing = result.scalar_one_or_none()
     if existing is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"A client with email '{request.email}' is already registered. "
-                   f"Use client_id '{existing.client_id}'.",
-        )
+        # Partial signup already wrote this email; secret is shown only once.
+        return existing, None
 
     result = await db.execute(select(Client).where(Client.name == request.name))
     existing = result.scalar_one_or_none()

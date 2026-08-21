@@ -3,7 +3,7 @@ QMail Key Manager — Client Tests
 
 Tests:
   1.  Client registration success
-  2.  Duplicate client registration → 409
+  2.  Duplicate client registration is idempotent
   3.  Get client info (authenticated)
   4.  Get client info without JWT → 401
   5.  Invalid client ID → 404
@@ -41,7 +41,7 @@ async def test_client_registration_success(client: AsyncClient):
     assert len(data["registration_secret"]) > 10
 
 
-# ── Test 2: Duplicate registration → 409 ──────────────────────────────────────
+# ── Test 2: Duplicate registration is idempotent ──────────────────────────────
 async def test_duplicate_registration(client: AsyncClient):
     payload = {
         "name": "DuplicateUser",
@@ -53,8 +53,11 @@ async def test_duplicate_registration(client: AsyncClient):
     assert first.status_code == 201
 
     second = await client.post("/api/v1/clients/register", json=payload)
-    assert second.status_code == 409
-    assert "already registered" in second.json()["detail"].lower()
+    assert second.status_code == 200
+    data = second.json()
+    assert data["status"] == "already_registered"
+    assert data["client_id"] == first.json()["client_id"]
+    assert data["registration_secret"] is None
 
 
 # ── Test 3: Get client info (authenticated) ────────────────────────────────────
@@ -172,8 +175,11 @@ async def test_duplicate_email_registration(client: AsyncClient):
         "/api/v1/clients/register",
         json={"name": "UserB", "email": "shared@example.com", **base},
     )
-    assert second.status_code == 409
-    assert "email" in second.json()["detail"].lower()
+    assert second.status_code == 200
+    data = second.json()
+    assert data["status"] == "already_registered"
+    assert data["client_id"] == first.json()["client_id"]
+    assert data["registration_secret"] is None
 
 
 async def test_key_rotation(client: AsyncClient, alice: dict):

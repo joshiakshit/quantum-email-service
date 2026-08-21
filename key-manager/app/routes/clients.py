@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends
+from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.database import get_db
@@ -31,6 +32,15 @@ async def register(
     db: AsyncSession = Depends(get_db),
 ) -> ClientRegisterResponse:
     client, plaintext_secret = await register_client(db, body)
+    if plaintext_secret is None:
+        return JSONResponse(
+            status_code=200,
+            content=ClientRegisterResponse(
+                client_id=client.client_id,
+                registration_secret=None,
+                status="already_registered",
+            ).model_dump(),
+        )
     return ClientRegisterResponse(
         client_id=client.client_id,
         registration_secret=plaintext_secret,

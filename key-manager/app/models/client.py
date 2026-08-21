@@ -49,10 +49,11 @@ class ClientRegisterResponse(BaseModel):
         ..., description="Unique QMail client identifier (format: QM-XXXXXXXX).",
         examples=["QM-A1B2C3D4"],
     )
-    registration_secret: str = Field(
-        ..., description=(
-            "One-time registration secret. Store it securely — "
-            "this value is shown once and never stored in plaintext."
+    registration_secret: str | None = Field(
+        None,
+        description=(
+            "One-time registration secret. Present only on first registration; "
+            "null when the email was already registered."
         ),
     )
     status: str = Field(default="registered")
