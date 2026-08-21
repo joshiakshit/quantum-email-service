@@ -1,21 +1,59 @@
 services:
   qmail:
     image: ghcr.io/joshiakshit/qmail:latest
-    build: .
     container_name: qmail
     restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
+      - DATABASE_URL=postgresql+asyncpg://qmail:${DB_PASSWORD}@postgres:5432/qmail_km
+      - QMAIL_DATABASE_URL=postgresql+asyncpg://qmail:${DB_PASSWORD}@postgres:5432/qmail_gw
+      - QMAIL_REDIS_URL=redis://redis:6379/0
       - QMAIL_KM_URL=http://localhost:8000
       - QMAIL_AUTH_URL=https://auth.joshiakshit.live
-      - JWT_SECRET_KEY=${JWT_SECRET_KEY:?Set JWT_SECRET_KEY in your environment}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:?Set JWT_SECRET_KEY in .env}
       - DEBUG=false
+    ports:
+      - "127.0.0.1:9000:9000"
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:9000/health', timeout=3).status==200 else 1)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: qmail-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: qmail
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
     volumes:
-      - km-data:/app/key-manager/data
+      - pg-data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U qmail"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: qmail-redis
+    restart: unless-stopped
+    command: ["redis-server", "--save", "60", "1", "--maxmemory", "128mb", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
 volumes:
-  km-data:
-
-networks:
-  default:
-    name: shared
-    external: true
+  pg-data:
+  redis-data:

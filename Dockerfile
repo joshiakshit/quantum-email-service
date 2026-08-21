@@ -22,6 +22,7 @@ RUN pip install --no-cache-dir \
 COPY crypto/ crypto/
 COPY qkd_sim/ qkd_sim/
 COPY email_pipeline/ email_pipeline/
+COPY storage/ storage/
 COPY gateway/ gateway/
 COPY key-manager/ key-manager/
 COPY --from=frontend /build/dist /app/frontend-build

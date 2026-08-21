@@ -4,11 +4,18 @@ from app.config import get_settings
 
 settings = get_settings()
 
+
+def _connect_args(url: str) -> dict:
+    if url.startswith("sqlite"):
+        return {"check_same_thread": False}
+    return {}
+
+
 engine = create_async_engine(
     settings.database_url,
     echo=settings.debug,
     future=True,
-    connect_args={"check_same_thread": False},
+    connect_args=_connect_args(settings.database_url),
 )
 
 AsyncSessionLocal = async_sessionmaker(

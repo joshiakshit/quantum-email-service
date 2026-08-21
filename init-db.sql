@@ -1,0 +1,2 @@
+CREATE DATABASE qmail_km;
+CREATE DATABASE qmail_gw;
