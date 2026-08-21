@@ -15,7 +15,7 @@ Tests:
 import pytest
 from httpx import AsyncClient
 
-from tests.conftest import FAKE_ML_KEM_KEY, FAKE_ML_DSA_KEY
+from tests.conftest import FAKE_ML_KEM_KEY, FAKE_ML_DSA_KEY, FAKE_X25519_KEY
 
 pytestmark = pytest.mark.asyncio
 
@@ -26,15 +26,17 @@ async def test_client_registration_success(client: AsyncClient):
         "/api/v1/clients/register",
         json={
             "name": "TestUser",
+            "email": "testuser@example.com",
             "ml_kem_public_key": FAKE_ML_KEM_KEY,
             "ml_dsa_public_key": FAKE_ML_DSA_KEY,
+            "x25519_public_key": FAKE_X25519_KEY,
         },
     )
     assert resp.status_code == 201
     data = resp.json()
     assert data["status"] == "registered"
     assert data["client_id"].startswith("QM-")
-    assert len(data["client_id"]) == 11   # "QM-" + 8 hex chars
+    assert len(data["client_id"]) == 11
     assert "registration_secret" in data
     assert len(data["registration_secret"]) > 10
 
@@ -43,6 +45,7 @@ async def test_client_registration_success(client: AsyncClient):
 async def test_duplicate_registration(client: AsyncClient):
     payload = {
         "name": "DuplicateUser",
+        "email": "duplicate@example.com",
         "ml_kem_public_key": FAKE_ML_KEM_KEY,
         "ml_dsa_public_key": FAKE_ML_DSA_KEY,
     }
@@ -64,8 +67,11 @@ async def test_get_client_info_authenticated(client: AsyncClient, alice: dict):
     data = resp.json()
     assert data["client_id"] == alice["client_id"]
     assert data["name"] == "Alice"
+    assert data["email"] == "alice@example.com"
     assert "ml_kem_public_key" in data
     assert "ml_dsa_public_key" in data
+    assert "x25519_public_key" in data
+    assert data["key_version"] == 1
 
 
 # ── Test 4: Unauthenticated access → 401 ──────────────────────────────────────
@@ -89,6 +95,7 @@ async def test_no_private_key_in_registration_response(client: AsyncClient):
         "/api/v1/clients/register",
         json={
             "name": "SecureUser",
+            "email": "secure@example.com",
             "ml_kem_public_key": FAKE_ML_KEM_KEY,
             "ml_dsa_public_key": FAKE_ML_DSA_KEY,
         },
@@ -117,6 +124,7 @@ async def test_client_id_format(client: AsyncClient):
         "/api/v1/clients/register",
         json={
             "name": "FormatUser",
+            "email": "format@example.com",
             "ml_kem_public_key": FAKE_ML_KEM_KEY,
             "ml_dsa_public_key": FAKE_ML_DSA_KEY,
         },
@@ -135,6 +143,7 @@ async def test_invalid_public_key_format(client: AsyncClient):
         "/api/v1/clients/register",
         json={
             "name": "BadKeyUser",
+            "email": "badkey@example.com",
             "ml_kem_public_key": "not-valid-base64!!!",
             "ml_dsa_public_key": FAKE_ML_DSA_KEY,
         },
@@ -142,8 +151,72 @@ async def test_invalid_public_key_format(client: AsyncClient):
     assert resp.status_code == 422
 
 
-# ── Test 9: Health endpoint ───────────────────────────────────────────────────
 async def test_health_endpoint(client: AsyncClient):
     resp = await client.get("/health")
     assert resp.status_code == 200
     assert resp.json()["status"] == "ok"
+
+
+async def test_duplicate_email_registration(client: AsyncClient):
+    base = {
+        "ml_kem_public_key": FAKE_ML_KEM_KEY,
+        "ml_dsa_public_key": FAKE_ML_DSA_KEY,
+    }
+    first = await client.post(
+        "/api/v1/clients/register",
+        json={"name": "UserA", "email": "shared@example.com", **base},
+    )
+    assert first.status_code == 201
+
+    second = await client.post(
+        "/api/v1/clients/register",
+        json={"name": "UserB", "email": "shared@example.com", **base},
+    )
+    assert second.status_code == 409
+    assert "email" in second.json()["detail"].lower()
+
+
+async def test_key_rotation(client: AsyncClient, alice: dict):
+    new_kem = FAKE_ML_KEM_KEY
+    new_dsa = FAKE_ML_DSA_KEY
+    new_x25519 = FAKE_X25519_KEY
+
+    resp = await client.put(
+        "/api/v1/clients/keys/rotate",
+        json={
+            "ml_kem_public_key": new_kem,
+            "ml_dsa_public_key": new_dsa,
+            "x25519_public_key": new_x25519,
+        },
+        headers={"Authorization": f"Bearer {alice['token']}"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["client_id"] == alice["client_id"]
+    assert data["key_version"] == 2
+    assert data["status"] == "rotated"
+
+
+async def test_key_rotation_increments_version(client: AsyncClient, alice: dict):
+    payload = {
+        "ml_kem_public_key": FAKE_ML_KEM_KEY,
+        "ml_dsa_public_key": FAKE_ML_DSA_KEY,
+    }
+    headers = {"Authorization": f"Bearer {alice['token']}"}
+
+    r1 = await client.put("/api/v1/clients/keys/rotate", json=payload, headers=headers)
+    assert r1.json()["key_version"] == 2
+
+    r2 = await client.put("/api/v1/clients/keys/rotate", json=payload, headers=headers)
+    assert r2.json()["key_version"] == 3
+
+
+async def test_key_rotation_unauthenticated(client: AsyncClient):
+    resp = await client.put(
+        "/api/v1/clients/keys/rotate",
+        json={
+            "ml_kem_public_key": FAKE_ML_KEM_KEY,
+            "ml_dsa_public_key": FAKE_ML_DSA_KEY,
+        },
+    )
+    assert resp.status_code == 401

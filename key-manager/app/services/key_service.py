@@ -2,7 +2,7 @@ import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException, status
 
-from app.services.client_service import get_client_by_id
+from app.services.client_service import get_client_by_id, get_client_by_email
 from app.services.qkd_service import qkd_service
 from app.database.schema import Client, SessionKey
 
@@ -11,6 +11,10 @@ logger = logging.getLogger(__name__)
 
 async def get_public_keys(db: AsyncSession, client_id: str) -> Client:
     return await get_client_by_id(db, client_id)
+
+
+async def get_public_keys_by_email(db: AsyncSession, email: str) -> Client:
+    return await get_client_by_email(db, email)
 
 
 async def request_session_key(

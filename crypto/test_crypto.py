@@ -7,13 +7,17 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from crypto.pqc import (
     generate_kem_keypair,
     generate_signing_keypair,
+    generate_x25519_keypair,
     kem_encapsulate,
     kem_decapsulate,
     sign_message,
     verify_signature,
+    hybrid_kem_encapsulate,
+    hybrid_kem_decapsulate,
     KEM_PUBLIC_KEY_SIZE,
     KEM_SECRET_KEY_SIZE,
     SIGNING_PUBLIC_KEY_SIZE,
+    X25519_KEY_SIZE,
 )
 from crypto.symmetric import encrypt, decrypt
 from crypto.envelope import seal_envelope, open_envelope
@@ -49,44 +53,223 @@ def test_symmetric_roundtrip():
     print(f"[PASS] AES-256-GCM round-trip: encryption and decryption match")
 
 
-def test_envelope_roundtrip():
+def test_symmetric_aad():
+    key = os.urandom(32)
+    plaintext = b"hello with aad"
+    aad = b"context-binding-data"
+    nonce, ciphertext, tag = encrypt(key, plaintext, aad=aad)
+    recovered = decrypt(key, nonce, ciphertext, tag, aad=aad)
+    assert recovered == plaintext
+
+    try:
+        decrypt(key, nonce, ciphertext, tag, aad=b"wrong-aad")
+        assert False, "Should reject mismatched AAD"
+    except ValueError:
+        pass
+
+    try:
+        decrypt(key, nonce, ciphertext, tag)
+        assert False, "Should reject missing AAD when AAD was used"
+    except ValueError:
+        pass
+    print(f"[PASS] AES-256-GCM AAD: correct AAD passes, wrong/missing AAD rejected")
+
+
+def test_x25519_roundtrip():
+    pk_a, sk_a = generate_x25519_keypair()
+    pk_b, sk_b = generate_x25519_keypair()
+    assert len(pk_a) == X25519_KEY_SIZE
+    assert len(sk_a) == X25519_KEY_SIZE
+    from crypto.pqc import _x25519_exchange
+    ss_ab = _x25519_exchange(sk_a, pk_b)
+    ss_ba = _x25519_exchange(sk_b, pk_a)
+    assert ss_ab == ss_ba
+    print(f"[PASS] X25519 key exchange: shared secrets match")
+
+
+def test_hybrid_kem_roundtrip():
+    kem_pk, kem_sk = generate_kem_keypair()
+    x25519_pk, x25519_sk = generate_x25519_keypair()
+
+    kem_ct, ephem_pk, session_key_sender = hybrid_kem_encapsulate(kem_pk, x25519_pk)
+    session_key_recipient = hybrid_kem_decapsulate(kem_sk, x25519_sk, kem_ct, ephem_pk)
+    assert session_key_sender == session_key_recipient
+    assert len(session_key_sender) == 32
+    print(f"[PASS] Hybrid KEM round-trip: X25519+ML-KEM-768 session keys match")
+
+
+def test_envelope_v2_roundtrip():
+    bob_kem_pk, bob_kem_sk = generate_kem_keypair()
+    bob_x25519_pk, bob_x25519_sk = generate_x25519_keypair()
+    _, alice_sig_sk = generate_signing_keypair()
+
+    message = b"Quantum-secured message from Alice to Bob"
+    sealed = seal_envelope(
+        message, bob_kem_pk, alice_sig_sk,
+        "alice@qmail.local", "bob@qmail.local",
+        recipient_x25519_pk=bob_x25519_pk,
+        subject="Test Subject",
+    )
+
+    envelope = json.loads(sealed)
+    assert envelope["version"] == 2
+    assert envelope["kem"] == "X25519+ML-KEM-768"
+    assert "sender_verify_key" not in envelope
+    assert "message_id" in envelope
+    assert "timestamp" in envelope
+
+    alice_sig_pk, _ = generate_signing_keypair()
+    alice_sig_pk, alice_sig_sk = generate_signing_keypair()
+
+    sealed = seal_envelope(
+        message, bob_kem_pk, alice_sig_sk,
+        "alice@qmail.local", "bob@qmail.local",
+        recipient_x25519_pk=bob_x25519_pk,
+        subject="Test Subject",
+    )
+
+    recovered = open_envelope(sealed, bob_kem_sk, bob_x25519_sk, alice_sig_pk)
+    assert recovered == message
+    print(f"[PASS] Envelope v2 round-trip: {len(sealed)}B envelope, message recovered")
+
+
+def test_envelope_v2_forgery_rejected():
+    bob_kem_pk, bob_kem_sk = generate_kem_keypair()
+    bob_x25519_pk, bob_x25519_sk = generate_x25519_keypair()
+    alice_sig_pk, alice_sig_sk = generate_signing_keypair()
+    _, eve_sig_sk = generate_signing_keypair()
+
+    sealed = seal_envelope(
+        b"Legit message", bob_kem_pk, eve_sig_sk,
+        "alice@qmail.local", "bob@qmail.local",
+        recipient_x25519_pk=bob_x25519_pk,
+    )
+
+    try:
+        open_envelope(sealed, bob_kem_sk, bob_x25519_sk, alice_sig_pk)
+        assert False, "Should reject envelope signed by Eve when verifying with Alice's key"
+    except ValueError as e:
+        assert "Signature verification failed" in str(e)
+    print(f"[PASS] Forgery rejected: Eve's signature fails against Alice's verify key")
+
+
+def test_envelope_v2_context_binding():
+    bob_kem_pk, bob_kem_sk = generate_kem_keypair()
+    bob_x25519_pk, bob_x25519_sk = generate_x25519_keypair()
+    alice_sig_pk, alice_sig_sk = generate_signing_keypair()
+
+    sealed = seal_envelope(
+        b"Context bound message", bob_kem_pk, alice_sig_sk,
+        "alice@qmail.local", "bob@qmail.local",
+        recipient_x25519_pk=bob_x25519_pk,
+        subject="Original Subject",
+    )
+
+    envelope = json.loads(sealed)
+    envelope["sender_id"] = "eve@evil.local"
+    tampered = json.dumps(envelope)
+    try:
+        open_envelope(tampered, bob_kem_sk, bob_x25519_sk, alice_sig_pk)
+        assert False, "Should reject tampered sender_id"
+    except ValueError:
+        pass
+
+    envelope = json.loads(sealed)
+    envelope["subject"] = "Phishing Subject"
+    tampered = json.dumps(envelope)
+    try:
+        open_envelope(tampered, bob_kem_sk, bob_x25519_sk, alice_sig_pk)
+        assert False, "Should reject tampered subject"
+    except ValueError:
+        pass
+    print(f"[PASS] Context binding: tampered sender_id and subject both rejected")
+
+
+def test_envelope_v2_replay_has_message_id():
+    bob_kem_pk, _ = generate_kem_keypair()
+    bob_x25519_pk, _ = generate_x25519_keypair()
+    _, alice_sig_sk = generate_signing_keypair()
+
+    sealed = seal_envelope(
+        b"Check replay fields", bob_kem_pk, alice_sig_sk,
+        "alice@qmail.local", "bob@qmail.local",
+        recipient_x25519_pk=bob_x25519_pk,
+    )
+    envelope = json.loads(sealed)
+    assert len(envelope["message_id"]) == 36
+    assert isinstance(envelope["timestamp"], int)
+    assert envelope["timestamp"] > 0
+    print(f"[PASS] Replay defence: message_id and timestamp present")
+
+
+def test_envelope_v1_compat():
+    from crypto.pqc import kem_encapsulate as _enc
     bob_kem_pk, bob_kem_sk = generate_kem_keypair()
     alice_sig_pk, alice_sig_sk = generate_signing_keypair()
 
-    message = b"Quantum-secured message from Alice to Bob"
-    sealed = seal_envelope(message, bob_kem_pk, alice_sig_sk, alice_sig_pk)
-    recovered = open_envelope(sealed, bob_kem_sk)
-    assert recovered == message
-    print(f"[PASS] Envelope round-trip: {len(sealed)}B envelope, message recovered")
+    kem_ct, shared_secret = _enc(bob_kem_pk)
+    nonce, ciphertext, tag = encrypt(shared_secret, b"V1 legacy message")
+    signed_payload = kem_ct + nonce + ciphertext + tag
+    signature = sign_message(alice_sig_sk, signed_payload)
+
+    import base64
+    def b64(data): return base64.b64encode(data).decode("ascii")
+    v1_envelope = json.dumps({
+        "version": 1,
+        "kem_algorithm": "ML-KEM-768",
+        "sig_algorithm": "ML-DSA-65",
+        "sym_algorithm": "AES-256-GCM",
+        "kem_ciphertext": b64(kem_ct),
+        "nonce": b64(nonce),
+        "ciphertext": b64(ciphertext),
+        "tag": b64(tag),
+        "signature": b64(signature),
+        "sender_verify_key": b64(alice_sig_pk),
+    })
+
+    recovered = open_envelope(v1_envelope, bob_kem_sk)
+    assert recovered == b"V1 legacy message"
+    print(f"[PASS] V1 compat: legacy envelope opens correctly")
 
 
 def test_envelope_tamper_detection():
     bob_kem_pk, bob_kem_sk = generate_kem_keypair()
+    bob_x25519_pk, bob_x25519_sk = generate_x25519_keypair()
     alice_sig_pk, alice_sig_sk = generate_signing_keypair()
 
-    sealed = seal_envelope(b"Original message", bob_kem_pk, alice_sig_sk, alice_sig_pk)
+    sealed = seal_envelope(
+        b"Original message", bob_kem_pk, alice_sig_sk,
+        "alice@qmail.local", "bob@qmail.local",
+        recipient_x25519_pk=bob_x25519_pk,
+    )
 
     envelope = json.loads(sealed)
     envelope["ciphertext"] = encode_key(b"tampered")
     tampered_json = json.dumps(envelope)
 
     try:
-        open_envelope(tampered_json, bob_kem_sk)
+        open_envelope(tampered_json, bob_kem_sk, bob_x25519_sk, alice_sig_pk)
         assert False, "Should have raised on tampered envelope"
-    except ValueError as e:
-        assert "tampered" in str(e).lower()
+    except ValueError:
+        pass
     print(f"[PASS] Tamper detection: rejected tampered envelope")
 
 
 def test_wrong_key_decryption():
     bob_kem_pk, bob_kem_sk = generate_kem_keypair()
+    bob_x25519_pk, bob_x25519_sk = generate_x25519_keypair()
     _, eve_kem_sk = generate_kem_keypair()
+    _, eve_x25519_sk = generate_x25519_keypair()
     alice_sig_pk, alice_sig_sk = generate_signing_keypair()
 
-    sealed = seal_envelope(b"Secret message", bob_kem_pk, alice_sig_sk, alice_sig_pk)
+    sealed = seal_envelope(
+        b"Secret message", bob_kem_pk, alice_sig_sk,
+        "alice@qmail.local", "bob@qmail.local",
+        recipient_x25519_pk=bob_x25519_pk,
+    )
 
     try:
-        open_envelope(sealed, eve_kem_sk)
+        open_envelope(sealed, eve_kem_sk, eve_x25519_sk, alice_sig_pk)
         assert False, "Should have failed with wrong key"
     except Exception:
         pass
@@ -146,10 +329,16 @@ def test_input_validation():
 
 def test_mime_roundtrip():
     bob_kem_pk, bob_kem_sk = generate_kem_keypair()
+    bob_x25519_pk, bob_x25519_sk = generate_x25519_keypair()
     alice_sig_pk, alice_sig_sk = generate_signing_keypair()
 
     message = b"MIME round-trip test message"
-    sealed = seal_envelope(message, bob_kem_pk, alice_sig_sk, alice_sig_pk)
+    sealed = seal_envelope(
+        message, bob_kem_pk, alice_sig_sk,
+        "alice@qmail.local", "bob@qmail.local",
+        recipient_x25519_pk=bob_x25519_pk,
+        subject="Test Subject",
+    )
 
     mime_msg = envelope_to_mime(sealed, "alice@qmail.local", "bob@qmail.local", "Test Subject")
     raw_email = mime_msg.as_string()
@@ -161,7 +350,7 @@ def test_mime_roundtrip():
     assert metadata["subject"] == "Test Subject"
 
     recovered_envelope = mime_to_envelope(raw_email)
-    recovered_message = open_envelope(recovered_envelope, bob_kem_sk)
+    recovered_message = open_envelope(recovered_envelope, bob_kem_sk, bob_x25519_sk, alice_sig_pk)
     assert recovered_message == message
     print(f"[PASS] MIME round-trip: envelope survives MIME encode/decode")
 
@@ -192,11 +381,16 @@ def test_qkd_simulator():
 
 def test_envelope_with_large_payload():
     bob_kem_pk, bob_kem_sk = generate_kem_keypair()
+    bob_x25519_pk, bob_x25519_sk = generate_x25519_keypair()
     alice_sig_pk, alice_sig_sk = generate_signing_keypair()
 
     large_message = b"A" * 100_000
-    sealed = seal_envelope(large_message, bob_kem_pk, alice_sig_sk, alice_sig_pk)
-    recovered = open_envelope(sealed, bob_kem_sk)
+    sealed = seal_envelope(
+        large_message, bob_kem_pk, alice_sig_sk,
+        "alice@qmail.local", "bob@qmail.local",
+        recipient_x25519_pk=bob_x25519_pk,
+    )
+    recovered = open_envelope(sealed, bob_kem_sk, bob_x25519_sk, alice_sig_pk)
     assert recovered == large_message
     print(f"[PASS] Large payload: 100KB message encrypted and recovered")
 
@@ -205,7 +399,14 @@ if __name__ == "__main__":
     test_kem_roundtrip()
     test_signing_roundtrip()
     test_symmetric_roundtrip()
-    test_envelope_roundtrip()
+    test_symmetric_aad()
+    test_x25519_roundtrip()
+    test_hybrid_kem_roundtrip()
+    test_envelope_v2_roundtrip()
+    test_envelope_v2_forgery_rejected()
+    test_envelope_v2_context_binding()
+    test_envelope_v2_replay_has_message_id()
+    test_envelope_v1_compat()
     test_envelope_tamper_detection()
     test_wrong_key_decryption()
     test_key_serialization()

@@ -1,10 +1,13 @@
 from crypto.pqc import (
     generate_kem_keypair,
     generate_signing_keypair,
+    generate_x25519_keypair,
     kem_encapsulate,
     kem_decapsulate,
     sign_message,
     verify_signature,
+    hybrid_kem_encapsulate,
+    hybrid_kem_decapsulate,
 )
 from crypto.symmetric import encrypt, decrypt
 from crypto.envelope import seal_envelope, open_envelope

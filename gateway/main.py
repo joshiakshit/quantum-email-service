@@ -4,9 +4,10 @@ import secrets
 import hashlib
 import logging
 from datetime import datetime, timezone
+from contextlib import asynccontextmanager
 
 import requests as http_requests
-from fastapi import FastAPI, HTTPException, Header, Query, Request
+from fastapi import FastAPI, Depends, HTTPException, Header, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,19 +18,39 @@ from slowapi.util import get_remote_address
 from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
+from sqlalchemy.ext.asyncio import AsyncSession
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from crypto.pqc import generate_kem_keypair, generate_signing_keypair
+import json
+
+from crypto.pqc import generate_kem_keypair, generate_signing_keypair, generate_x25519_keypair
 from crypto.envelope import seal_envelope, open_envelope
 from crypto.email_helpers import envelope_to_mime, mime_to_envelope, extract_metadata
+
+from storage.database import init_db, get_db, close_db
+from storage.sessions import SessionStore
+from storage import repositories as repo
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s")
 logger = logging.getLogger(__name__)
 
+session_store = SessionStore()
+
+
+@asynccontextmanager
+async def lifespan(application: FastAPI):
+    await init_db()
+    await session_store.connect()
+    logger.info("Storage layer initialised")
+    yield
+    await session_store.close()
+    await close_db()
+
+
 limiter = Limiter(key_func=get_remote_address)
 
-app = FastAPI(title="QMail Gateway", version="1.0.0")
+app = FastAPI(title="QMail Gateway", version="1.0.0", lifespan=lifespan)
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
@@ -72,14 +93,6 @@ async def validation_exception_handler(request, exc):
 KM_URL = os.environ.get("QMAIL_KM_URL", "http://localhost:8000")
 AUTH_SERVICE_URL = os.environ.get("QMAIL_AUTH_URL", "https://auth.joshiakshit.live")
 
-sessions: dict = {}
-demo_mailbox: dict = {}
-demo_sent: dict = {}
-registered_users: dict = {}
-email_to_client: dict = {}
-user_credentials: dict = {}
-
-
 EMAIL_DOMAIN = "qmail.secure"
 
 
@@ -107,11 +120,11 @@ class SendReq(BaseModel):
     body: str
 
 
-def _get_session(authorization: str | None):
+async def _get_session(authorization: str | None) -> dict:
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(401, "Missing token")
     token = authorization.removeprefix("Bearer ").strip()
-    s = sessions.get(token)
+    s = await session_store.get(token)
     if not s:
         raise HTTPException(401, "Invalid session")
     return s
@@ -122,7 +135,25 @@ def _fingerprint(key_bytes: bytes) -> str:
     return ":".join(h[i:i+2] for i in range(0, 16, 2))
 
 
-def _create_session(auth_token: str):
+async def _resolve_verify_key(db: AsyncSession, env_json: str) -> bytes | None:
+    try:
+        sender_id = json.loads(env_json).get("sender_id")
+    except Exception:
+        return None
+    if not sender_id:
+        return None
+    reg = await repo.get_registered_user(db, sender_id)
+    if reg and reg.get("sign_pk"):
+        return reg["sign_pk"]
+    from crypto.km_client import KeyManagerClient
+    km = KeyManagerClient(base_url=KM_URL, verify_ssl=False)
+    try:
+        return km.get_public_keys(sender_id)["signing_public_key"]
+    except Exception:
+        return None
+
+
+async def _create_session(auth_token: str, db: AsyncSession):
     try:
         resp = http_requests.get(
             f"{AUTH_SERVICE_URL}/api/v1/users/me",
@@ -138,16 +169,17 @@ def _create_session(auth_token: str):
     email = user_info.get("email", "")
     name = user_info.get("name") or user_info.get("username") or email.split("@")[0]
 
-    if email in user_credentials:
-        cred = user_credentials[email]
-    else:
+    cred = await repo.get_credential_by_email(db, email)
+
+    if not cred:
         kem_pk, kem_sk = generate_kem_keypair()
         sign_pk, sign_sk = generate_signing_keypair()
+        x25519_pk, x25519_sk = generate_x25519_keypair()
 
         from crypto.km_client import KeyManagerClient
         km = KeyManagerClient(base_url=KM_URL, verify_ssl=False)
         try:
-            result = km.register(name, kem_pk, sign_pk)
+            result = km.register(name, email, kem_pk, sign_pk, x25519_pk)
             client_id = result["client_id"]
             reg_secret = result["registration_secret"]
             km.authenticate(client_id, reg_secret)
@@ -161,20 +193,20 @@ def _create_session(auth_token: str):
             "kem_sk": kem_sk,
             "sign_pk": sign_pk,
             "sign_sk": sign_sk,
+            "x25519_pk": x25519_pk,
+            "x25519_sk": x25519_sk,
             "reg_secret": reg_secret,
-            "km": km,
             "registered_at": datetime.now(timezone.utc).isoformat(),
         }
-        user_credentials[email] = cred
-
-        registered_users[client_id] = {
+        await repo.save_credential(db, email, cred)
+        await repo.save_registered_user(db, client_id, {
             "name": name, "email": email,
-            "kem_pk": kem_pk, "sign_pk": sign_pk,
-        }
-        email_to_client[email] = client_id
+            "kem_pk": kem_pk, "sign_pk": sign_pk, "x25519_pk": x25519_pk,
+        })
+        await repo.save_email_mapping(db, email, client_id)
 
     token = secrets.token_hex(32)
-    sessions[token] = {
+    await session_store.set(token, {
         "client_id": cred["client_id"],
         "name": cred["name"],
         "email": email,
@@ -182,10 +214,11 @@ def _create_session(auth_token: str):
         "kem_sk": cred["kem_sk"],
         "sign_pk": cred["sign_pk"],
         "sign_sk": cred["sign_sk"],
+        "x25519_pk": cred.get("x25519_pk"),
+        "x25519_sk": cred.get("x25519_sk"),
         "reg_secret": cred["reg_secret"],
-        "km": cred["km"],
         "registered_at": cred["registered_at"],
-    }
+    })
 
     return {
         "token": token,
@@ -199,7 +232,7 @@ def _create_session(auth_token: str):
 
 @app.post("/api/auth/login")
 @limiter.limit("5/minute")
-async def auth_login(request: Request, req: LoginReq):
+async def auth_login(request: Request, req: LoginReq, db: AsyncSession = Depends(get_db)):
     email = _to_email(req.username)
     try:
         resp = http_requests.post(
@@ -217,12 +250,12 @@ async def auth_login(request: Request, req: LoginReq):
         raise HTTPException(resp.status_code, detail)
 
     auth_token = resp.json().get("access_token")
-    return _create_session(auth_token)
+    return await _create_session(auth_token, db)
 
 
 @app.post("/api/auth/register")
 @limiter.limit("3/minute")
-async def auth_register(request: Request, req: RegisterReq):
+async def auth_register(request: Request, req: RegisterReq, db: AsyncSession = Depends(get_db)):
     email = _to_email(req.username)
     name = f"{req.first_name} {req.last_name}".strip()
     try:
@@ -249,12 +282,12 @@ async def auth_register(request: Request, req: RegisterReq):
         raise HTTPException(500, "Account created but auto-login failed")
 
     auth_token = login_resp.json().get("access_token")
-    return _create_session(auth_token)
+    return await _create_session(auth_token, db)
 
 
 @app.get("/api/auth/status")
 async def auth_status(authorization: str = Header(None)):
-    s = _get_session(authorization)
+    s = await _get_session(authorization)
     return {
         "client_id": s["client_id"],
         "name": s["name"],
@@ -269,22 +302,30 @@ async def auth_status(authorization: str = Header(None)):
 async def logout(authorization: str = Header(None)):
     if authorization and authorization.startswith("Bearer "):
         token = authorization.removeprefix("Bearer ").strip()
-        sessions.pop(token, None)
+        await session_store.delete(token)
     return {"status": "ok"}
 
 
 @app.get("/api/emails")
-async def get_emails(folder: str = Query("inbox"), authorization: str = Header(None)):
-    s = _get_session(authorization)
+async def get_emails(
+    folder: str = Query("inbox"),
+    authorization: str = Header(None),
+    db: AsyncSession = Depends(get_db),
+):
+    s = await _get_session(authorization)
     result = []
 
     if folder == "inbox":
-        raw_list = demo_mailbox.get(s["email"], [])
-        for i, raw in enumerate(raw_list):
+        messages = await repo.get_inbox(db, s["email"])
+        for i, msg in enumerate(messages):
+            raw = msg.raw_mime or ""
             meta = extract_metadata(raw)
             try:
                 env_json = mime_to_envelope(raw)
-                plaintext = open_envelope(env_json, s["kem_sk"])
+                sender_verify_key = await _resolve_verify_key(db, env_json)
+                plaintext = open_envelope(
+                    env_json, s["kem_sk"], s.get("x25519_sk"), sender_verify_key,
+                )
                 body = plaintext.decode("utf-8", errors="replace")
                 encrypted = True
                 fp = _fingerprint(s["kem_pk"])
@@ -297,44 +338,37 @@ async def get_emails(folder: str = Query("inbox"), authorization: str = Header(N
             sender_name = sender_full.split("<")[0].strip() if "<" in sender_full else sender_full
             sender_email = sender_full.split("<")[1].rstrip(">") if "<" in sender_full else sender_full
 
-            labels = [
-                ("Mission Critical", "rgba(111,168,220,0.15)", "#6fa8dc"),
-                ("Classified", "rgba(224,102,102,0.15)", "#e06666"),
-                ("", "", ""),
-                ("", "", ""),
-            ]
-            lb = labels[i % len(labels)] if encrypted else ("", "", "")
-
+            ts = msg.created_at or datetime.now(timezone.utc)
             result.append({
-                "id": i + 1,
+                "id": msg.id,
                 "folder": "inbox",
                 "sender": sender_name,
                 "senderEmail": sender_email,
                 "subject": meta.get("subject", "(no subject)"),
                 "preview": body[:80] + ("…" if len(body) > 80 else ""),
                 "body": body,
-                "time": ["09:42", "08:15", "Yesterday", "Yesterday"][i % 4],
-                "fullDate": datetime.now(timezone.utc).strftime("%d %b %Y at %H:%M UTC"),
+                "time": ts.strftime("%H:%M"),
+                "fullDate": ts.strftime("%d %b %Y at %H:%M UTC"),
                 "encrypted": encrypted,
                 "fingerprint": fp,
-                "unread": i < 2,
+                "unread": not msg.is_read,
                 "avatarIdx": i % 4,
-                "label": lb[0],
-                "labelBg": lb[1],
-                "labelColor": lb[2],
+                "label": "", "labelBg": "", "labelColor": "",
             })
     elif folder == "sent":
-        for i, item in enumerate(demo_sent.get(s["email"], [])):
+        messages = await repo.get_sent(db, s["email"])
+        for i, msg in enumerate(messages):
+            ts = msg.created_at or datetime.now(timezone.utc)
             result.append({
-                "id": 1000 + i,
+                "id": msg.id,
                 "folder": "sent",
                 "sender": "You",
                 "senderEmail": s["email"],
-                "subject": item["subject"],
-                "preview": item["body"][:80],
-                "body": item["body"],
-                "time": "Just now",
-                "fullDate": datetime.now(timezone.utc).strftime("%d %b %Y at %H:%M UTC"),
+                "subject": msg.subject,
+                "preview": (msg.body or "")[:80],
+                "body": msg.body or "",
+                "time": ts.strftime("%H:%M"),
+                "fullDate": ts.strftime("%d %b %Y at %H:%M UTC"),
                 "encrypted": True,
                 "fingerprint": _fingerprint(s["sign_pk"]),
                 "unread": False,
@@ -346,26 +380,46 @@ async def get_emails(folder: str = Query("inbox"), authorization: str = Header(N
 
 
 @app.post("/api/emails/send")
-async def send_email(req: SendReq, authorization: str = Header(None)):
-    s = _get_session(authorization)
+async def send_email(
+    req: SendReq,
+    authorization: str = Header(None),
+    db: AsyncSession = Depends(get_db),
+):
+    s = await _get_session(authorization)
 
-    recipient_client_id = email_to_client.get(req.to_email)
+    recipient_client_id = await repo.get_client_id_by_email(db, req.to_email)
+    if not recipient_client_id:
+        raise HTTPException(404, "Recipient not registered")
+
     recipient_kem_pk = None
+    recipient_x25519_pk = None
 
-    if recipient_client_id and recipient_client_id in registered_users:
-        recipient_kem_pk = registered_users[recipient_client_id]["kem_pk"]
-    elif recipient_client_id:
+    reg_user = await repo.get_registered_user(db, recipient_client_id)
+    if reg_user:
+        recipient_kem_pk = reg_user["kem_pk"]
+        recipient_x25519_pk = reg_user.get("x25519_pk")
+
+    if not (recipient_kem_pk and recipient_x25519_pk):
+        from crypto.km_client import KeyManagerClient
+        km = KeyManagerClient(base_url=KM_URL, verify_ssl=False)
         try:
-            keys = s["km"].get_public_keys(recipient_client_id)
+            keys = km.get_public_keys(recipient_client_id)
             recipient_kem_pk = keys["kem_public_key"]
+            recipient_x25519_pk = keys.get("x25519_public_key")
         except Exception:
             pass
 
-    if not recipient_kem_pk:
-        raise HTTPException(404, "Recipient not registered or KEM key unavailable")
+    if not recipient_kem_pk or not recipient_x25519_pk:
+        raise HTTPException(404, "Recipient not registered or missing hybrid KEM keys")
 
     env_json = seal_envelope(
-        req.body.encode("utf-8"), recipient_kem_pk, s["sign_sk"], s["sign_pk"],
+        req.body.encode("utf-8"),
+        recipient_kem_pk,
+        s["sign_sk"],
+        s["client_id"],
+        recipient_client_id,
+        recipient_x25519_pk=recipient_x25519_pk,
+        subject=req.subject,
     )
     mime_msg = envelope_to_mime(env_json, s["email"], req.to_email, req.subject)
 
@@ -375,15 +429,8 @@ async def send_email(req: SendReq, authorization: str = Header(None)):
         from email_pipeline.config import SMTPConfig
         send_mime_message(mime_msg, SMTPConfig.from_env())
 
-    if req.to_email not in demo_mailbox:
-        demo_mailbox[req.to_email] = []
-    demo_mailbox[req.to_email].append(mime_msg.as_string())
-
-    if s["email"] not in demo_sent:
-        demo_sent[s["email"]] = []
-    demo_sent[s["email"]].append({
-        "to": req.to_email, "subject": req.subject, "body": req.body,
-    })
+    await repo.append_to_inbox(db, req.to_email, mime_msg.as_string())
+    await repo.append_to_sent(db, s["email"], req.to_email, req.subject, req.body)
 
     return {
         "status": "sent",
@@ -395,7 +442,7 @@ async def send_email(req: SendReq, authorization: str = Header(None)):
 
 @app.get("/api/keys/info")
 async def keys_info(authorization: str = Header(None)):
-    s = _get_session(authorization)
+    s = await _get_session(authorization)
     return {
         "client_id": s["client_id"],
         "kem_algorithm": "ML-KEM-768",
@@ -406,15 +453,6 @@ async def keys_info(authorization: str = Header(None)):
         "km_url": KM_URL,
         "km_status": "connected",
     }
-
-
-@app.on_event("startup")
-async def _startup_warnings():
-    if os.environ.get("QMAIL_ENV", "development").lower() != "development":
-        logger.warning(
-            "Sessions and key material are stored in-memory. "
-            "Deploy Redis or an encrypted-at-rest store before production."
-        )
 
 
 @app.get("/health")

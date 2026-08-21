@@ -14,14 +14,24 @@ class KeyManagerClient:
         self.session = requests.Session()
         self.session.verify = verify_ssl
 
-    def register(self, name: str, kem_public_key: bytes, signing_public_key: bytes) -> dict:
+    def register(
+        self,
+        name: str,
+        email: str,
+        kem_public_key: bytes,
+        signing_public_key: bytes,
+        x25519_public_key: bytes | None = None,
+    ) -> dict:
+        payload = {
+            "name": name,
+            "email": email,
+            "ml_kem_public_key": encode_key(kem_public_key),
+            "ml_dsa_public_key": encode_key(signing_public_key),
+        }
+        if x25519_public_key is not None:
+            payload["x25519_public_key"] = encode_key(x25519_public_key)
         response = self.session.post(
-            f"{self.api_url}/clients/register",
-            json={
-                "name": name,
-                "ml_kem_public_key": encode_key(kem_public_key),
-                "ml_dsa_public_key": encode_key(signing_public_key),
-            },
+            f"{self.api_url}/clients/register", json=payload,
         )
         response.raise_for_status()
         data = response.json()
@@ -49,11 +59,55 @@ class KeyManagerClient:
         response = self.session.get(f"{self.api_url}/keys/public/{client_id}")
         response.raise_for_status()
         data = response.json()
-        return {
+        result = {
             "client_id": data["client_id"],
             "name": data["name"],
+            "email": data["email"],
             "kem_public_key": decode_key(data["ml_kem_public_key"]),
             "signing_public_key": decode_key(data["ml_dsa_public_key"]),
+            "key_version": data["key_version"],
+        }
+        if data.get("x25519_public_key"):
+            result["x25519_public_key"] = decode_key(data["x25519_public_key"])
+        return result
+
+    def directory_lookup(self, email: str) -> dict:
+        response = self.session.get(f"{self.api_url}/keys/directory/{email}")
+        response.raise_for_status()
+        data = response.json()
+        result = {
+            "client_id": data["client_id"],
+            "name": data["name"],
+            "email": data["email"],
+            "kem_public_key": decode_key(data["ml_kem_public_key"]),
+            "signing_public_key": decode_key(data["ml_dsa_public_key"]),
+            "key_version": data["key_version"],
+        }
+        if data.get("x25519_public_key"):
+            result["x25519_public_key"] = decode_key(data["x25519_public_key"])
+        return result
+
+    def rotate_keys(
+        self,
+        kem_public_key: bytes,
+        signing_public_key: bytes,
+        x25519_public_key: bytes | None = None,
+    ) -> dict:
+        payload = {
+            "ml_kem_public_key": encode_key(kem_public_key),
+            "ml_dsa_public_key": encode_key(signing_public_key),
+        }
+        if x25519_public_key is not None:
+            payload["x25519_public_key"] = encode_key(x25519_public_key)
+        response = self.session.put(
+            f"{self.api_url}/clients/keys/rotate", json=payload,
+        )
+        response.raise_for_status()
+        data = response.json()
+        return {
+            "client_id": data["client_id"],
+            "key_version": data["key_version"],
+            "status": data["status"],
         }
 
     def request_qkd_session_key(self, sender_id: str, recipient_id: str) -> dict:

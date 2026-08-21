@@ -25,6 +25,7 @@ settings = get_settings()
 # ── Fake ML-KEM / ML-DSA public keys (random base64 for test purposes) ────────
 FAKE_ML_KEM_KEY = base64.b64encode(secrets.token_bytes(64)).decode()
 FAKE_ML_DSA_KEY = base64.b64encode(secrets.token_bytes(64)).decode()
+FAKE_X25519_KEY = base64.b64encode(secrets.token_bytes(32)).decode()
 
 
 @pytest_asyncio.fixture(scope="function")
@@ -80,14 +81,18 @@ async def client(db_session):
 
 # ── Helper: register a client and get JWT ─────────────────────────────────────
 
-async def _register_and_login(http_client: AsyncClient, name: str) -> dict:
+async def _register_and_login(http_client: AsyncClient, name: str, email: str | None = None) -> dict:
     """Register a client and return {client_id, token, registration_secret}."""
+    if email is None:
+        email = f"{name.lower()}@example.com"
     reg_resp = await http_client.post(
         "/api/v1/clients/register",
         json={
             "name": name,
+            "email": email,
             "ml_kem_public_key": FAKE_ML_KEM_KEY,
             "ml_dsa_public_key": FAKE_ML_DSA_KEY,
+            "x25519_public_key": FAKE_X25519_KEY,
         },
     )
     assert reg_resp.status_code == 201, reg_resp.text

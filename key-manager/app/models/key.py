@@ -6,12 +6,17 @@ from pydantic import BaseModel, Field
 class PublicKeyResponse(BaseModel):
     client_id: str
     name: str
+    email: str
     ml_kem_public_key: str = Field(
         ..., description="Base64-encoded ML-KEM public key for this recipient.",
     )
     ml_dsa_public_key: str = Field(
         ..., description="Base64-encoded ML-DSA public key for this recipient.",
     )
+    x25519_public_key: str | None = Field(
+        None, description="Base64-encoded X25519 public key for hybrid KEM.",
+    )
+    key_version: int = Field(1, description="Key rotation version.")
 
     model_config = {"from_attributes": True}
 

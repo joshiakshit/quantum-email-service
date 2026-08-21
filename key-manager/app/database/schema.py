@@ -19,14 +19,18 @@ class Client(Base):
     __tablename__ = "clients"
 
     client_id: Mapped[str] = mapped_column(String(20), primary_key=True, index=True)
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     ml_kem_public_key: Mapped[str] = mapped_column(Text, nullable=False)
     ml_dsa_public_key: Mapped[str] = mapped_column(Text, nullable=False)
+    x25519_public_key: Mapped[str | None] = mapped_column(Text, nullable=True)
     hashed_secret: Mapped[str] = mapped_column(String(255), nullable=False)
+    key_version: Mapped[int] = mapped_column(default=1, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, nullable=False)
+    rotated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     def __repr__(self) -> str:
-        return f"<Client id={self.client_id} name={self.name}>"
+        return f"<Client id={self.client_id} email={self.email}>"
 
 
 class SessionKey(Base):

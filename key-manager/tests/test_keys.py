@@ -35,9 +35,11 @@ async def test_get_public_keys(client: AsyncClient, alice: dict, bob: dict):
     assert resp.status_code == 200
     data = resp.json()
     assert data["client_id"] == bob["client_id"]
+    assert data["email"] == "bob@example.com"
     assert "ml_kem_public_key" in data
     assert "ml_dsa_public_key" in data
-    # Keys should be valid base64
+    assert "x25519_public_key" in data
+    assert data["key_version"] == 1
     base64.b64decode(data["ml_kem_public_key"], validate=True)
     base64.b64decode(data["ml_dsa_public_key"], validate=True)
 
@@ -116,8 +118,8 @@ async def test_third_party_cannot_retrieve_key(
     client: AsyncClient, alice: dict, bob: dict
 ):
     # Register a third party
-    from tests.conftest import FAKE_ML_KEM_KEY, FAKE_ML_DSA_KEY, _register_and_login
-    charlie = await _register_and_login(client, "Charlie")
+    from tests.conftest import _register_and_login
+    charlie = await _register_and_login(client, "Charlie", "charlie@example.com")
 
     gen_resp = await client.post(
         "/api/v1/keys/request",
@@ -234,3 +236,30 @@ async def test_full_alice_bob_flow(client: AsyncClient, alice: dict, bob: dict):
     assert sk_data["algorithm"] == "BB84-QKD-SIM"
     assert sk_data["sender_id"] == alice["client_id"]
     assert sk_data["recipient_id"] == bob["client_id"]
+
+
+async def test_directory_lookup_by_email(client: AsyncClient, alice: dict, bob: dict):
+    resp = await client.get(
+        "/api/v1/keys/directory/bob@example.com",
+        headers={"Authorization": f"Bearer {alice['token']}"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["client_id"] == bob["client_id"]
+    assert data["email"] == "bob@example.com"
+    assert "ml_kem_public_key" in data
+    assert "x25519_public_key" in data
+    assert data["key_version"] == 1
+
+
+async def test_directory_lookup_not_found(client: AsyncClient, alice: dict):
+    resp = await client.get(
+        "/api/v1/keys/directory/nobody@example.com",
+        headers={"Authorization": f"Bearer {alice['token']}"},
+    )
+    assert resp.status_code == 404
+
+
+async def test_directory_lookup_unauthenticated(client: AsyncClient, bob: dict):
+    resp = await client.get("/api/v1/keys/directory/bob@example.com")
+    assert resp.status_code == 401

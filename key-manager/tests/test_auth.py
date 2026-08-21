@@ -69,6 +69,7 @@ async def test_token_expires_in_field(client: AsyncClient):
         "/api/v1/clients/register",
         json={
             "name": "TokenTester",
+            "email": "tokentester@example.com",
             "ml_kem_public_key": FAKE_ML_KEM_KEY,
             "ml_dsa_public_key": FAKE_ML_DSA_KEY,
         },

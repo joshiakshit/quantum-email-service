@@ -7,9 +7,11 @@ from app.models.client import (
     ClientRegisterRequest,
     ClientRegisterResponse,
     ClientInfoResponse,
+    KeyRotateRequest,
+    KeyRotateResponse,
 )
 from app.security.jwt import get_current_client
-from app.services.client_service import register_client, get_client_by_id
+from app.services.client_service import register_client, get_client_by_id, rotate_keys
 
 router = APIRouter(prefix="/api/v1/clients", tags=["Clients"])
 
@@ -20,9 +22,8 @@ router = APIRouter(prefix="/api/v1/clients", tags=["Clients"])
     status_code=201,
     summary="Register a new QMail client",
     description=(
-        "Register a new client by providing a name and ML-KEM / ML-DSA public keys. "
-        "Returns a unique `client_id` and a `registration_secret`. "
-        "Save the secret immediately — it is shown once and never stored in plaintext."
+        "Register a new client by providing a name, email, and public keys. "
+        "Returns a unique `client_id` and a `registration_secret`."
     ),
 )
 async def register(
@@ -41,10 +42,6 @@ async def register(
     "/{client_id}",
     response_model=ClientInfoResponse,
     summary="Get client information",
-    description=(
-        "Retrieve public information about a registered QMail client. "
-        "Only public keys are returned. Requires a valid JWT Bearer token."
-    ),
 )
 async def get_client(
     client_id: str,
@@ -54,8 +51,29 @@ async def get_client(
     client = await get_client_by_id(db, client_id)
     return ClientInfoResponse(
         client_id=client.client_id,
+        email=client.email,
         name=client.name,
         ml_kem_public_key=client.ml_kem_public_key,
         ml_dsa_public_key=client.ml_dsa_public_key,
+        x25519_public_key=client.x25519_public_key,
+        key_version=client.key_version,
         created_at=client.created_at,
+    )
+
+
+@router.put(
+    "/keys/rotate",
+    response_model=KeyRotateResponse,
+    summary="Rotate public keys",
+    description="Replace all public keys and increment the key version.",
+)
+async def rotate(
+    body: KeyRotateRequest,
+    db: AsyncSession = Depends(get_db),
+    current: Client = Depends(get_current_client),
+) -> KeyRotateResponse:
+    updated = await rotate_keys(db, current, body)
+    return KeyRotateResponse(
+        client_id=updated.client_id,
+        key_version=updated.key_version,
     )
