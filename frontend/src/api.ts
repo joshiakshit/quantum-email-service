@@ -1,5 +1,3 @@
-import { encryptPassword } from '@/crypto/authCrypto';
-
 const BASE = '/api';
 
 function authHeaders(): Record<string, string> {
@@ -76,19 +74,17 @@ export interface KeysInfo {
   km_status: string;
 }
 
-export async function login(username: string, password: string) {
-  const encrypted_password = await encryptPassword(password);
+export function login(username: string, password: string) {
   return request<AuthResponse>('/auth/login', {
     method: 'POST',
-    body: JSON.stringify({ username, encrypted_password }),
+    body: JSON.stringify({ username, password }),
   });
 }
 
-export async function register(firstName: string, lastName: string, username: string, password: string) {
-  const encrypted_password = await encryptPassword(password);
+export function register(firstName: string, lastName: string, username: string, password: string) {
   return request<AuthResponse>('/auth/register', {
     method: 'POST',
-    body: JSON.stringify({ first_name: firstName, last_name: lastName, username, encrypted_password }),
+    body: JSON.stringify({ first_name: firstName, last_name: lastName, username, password }),
   });
 }
 
